@@ -12,9 +12,9 @@ from fx.toon import barrel, box, build
 CHIP_POOL = 48
 TOKEN_POOL = 6
 AMMO_POOL = 8
-CRATE = color.hsv(95, 0.45, 0.62)
+CRATE = color.hsv(36, 0.5, 0.7)
 BRASS = color.hsv(44, 0.6, 0.95)
-CHIP_HUES = (185, 325, 52, 130)
+CHIP_HUES = (185, 325, 52, 275)
 GOLD = color.hsv(46, 0.75, 1)
 REST = 0.4                  # how high above the deck a drop comes to rest
 ARMED = 0.35                # a drop can't be picked up until it has been out this long
@@ -43,7 +43,7 @@ def crate_model():
     """An ammunition box with a row of rounds standing on its lid."""
     return build([
         (box((0.5, 0.3, 0.34)), CRATE),
-        (box((0.54, 0.07, 0.38), (0, 0.07, 0)), color.hsv(95, 0.4, 0.4)),
+        (box((0.54, 0.07, 0.38), (0, 0.07, 0)), color.hsv(30, 0.5, 0.46)),
         *[(barrel(0.04, -0.06, 0.1, x=x, sides=6), BRASS) for x in (-0.15, -0.05, 0.05, 0.15)],
     ], 0.025)
 

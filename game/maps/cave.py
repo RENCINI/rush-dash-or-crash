@@ -4,7 +4,7 @@ from random import Random
 from ursina import Entity, Vec3, color, time
 
 from fx.toon import box, build, placed, solid
-from game.maps.arena import Arena, Vine, ball, drum, glow, polar, wedge
+from game.maps.arena import Arena, Vine, ball, drum, gate_hue, glow, polar, wedge
 
 RADIUS = 60
 WALL = 13                   # the rock is this high where the dome springs from it
@@ -35,12 +35,12 @@ ROCK_ALT = color.hsv(262, 0.3, 0.36)
 ROCK_PALE = color.hsv(250, 0.2, 0.46)
 ROCK_DARK = color.hsv(262, 0.35, 0.2)
 VINE = color.hsv(168, 0.55, 0.5)
-LEAF = color.hsv(150, 0.6, 0.68)
-LEAF_DARK = color.hsv(158, 0.6, 0.5)
+LEAF = color.hsv(176, 0.55, 0.66)
+LEAF_DARK = color.hsv(184, 0.58, 0.48)
 TRACK_A = color.hsv(240, 0.2, 0.44)
 TRACK_B = color.hsv(244, 0.2, 0.5)
 VOID = color.hsv(265, 0.5, 0.06)
-HUES = (185, 300, 55, 130, 20, 265, 340, 210, 95)      # crystals come in all of these
+HUES = (185, 300, 55, 20, 265, 340, 210, 42)      # crystals come in all of these, but never the parry green
 
 
 def crystal_colour(hue, value=1.0):
@@ -314,8 +314,8 @@ class Cave(Arena):
 
     def animate(self, dt):
         now = time.time()
-        self.light_gates(color.hsv((now * 90) % 360, 0.5, 1))
-        self.heart.color = color.hsv((now * 24) % 360, 0.5, 1)
+        self.light_gates(color.hsv(gate_hue(now), 0.5, 1))
+        self.heart.color = color.hsv(gate_hue(now * 0.3), 0.5, 1)     # round the colours, never green
         throb = color.hsv(0, 0, 0.8 + 0.2 * sin(now * 8))
         for pool in self.pools:
             pool.color = throb

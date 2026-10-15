@@ -26,7 +26,7 @@ TITLE = (
 )
 CLASSIC_HUES = (178, 8, 282, 38)    # four of the weapons' own colours, for the first swatch
 # (hue, name); None keeps each weapon's own paint
-PAINTS = ((None, 'CLASSIC'), (0, 'RED'), (28, 'ORANGE'), (52, 'YELLOW'), (130, 'GREEN'), (185, 'CYAN'),
+PAINTS = ((None, 'CLASSIC'), (0, 'RED'), (28, 'ORANGE'), (52, 'YELLOW'), (78, 'LIME'), (185, 'CYAN'),
           (222, 'BLUE'), (282, 'PURPLE'), (325, 'PINK'))
 
 # layout in UI units: the screen is 1 tall and x is 0 at its centre

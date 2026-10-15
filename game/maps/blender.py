@@ -6,7 +6,7 @@ from ursina import Entity, Mesh, MeshCollider, Vec3, color, time
 
 from data import tuning as T
 from fx.toon import box, build, placed, solid
-from game.maps.arena import Arena, Deck, Ramp, ball, drum, polar, wedge
+from game.maps.arena import Arena, Deck, Ramp, ball, drum, gate_hue, polar, wedge
 
 ARENA_RADIUS = 60
 WALL_HEIGHT = 14
@@ -59,7 +59,7 @@ PANE = color.hsv(195, 0.5, 1, 0.22)     # skylight glass: the stars show through
 SPACE = color.hsv(245, 0.6, 0.22)
 CATWALK = color.hsv(18, 0.6, 0.94)
 TANK = color.hsv(172, 0.5, 0.84)
-PAD = color.hsv(105, 0.6, 0.92)
+PAD = color.hsv(28, 0.72, 0.98)
 ARM = color.hsv(355, 0.65, 0.94)
 PLANET = color.hsv(205, 0.6, 0.95)
 MOON = color.hsv(40, 0.12, 0.9)
@@ -396,16 +396,16 @@ class Blender(Arena):
         pulse = color.hsv(0, 0, 0.82 + 0.18 * sin(now * 8))
         for light in self.pad_lights:
             light.color = pulse
-        self.light_gates(color.hsv((now * 90) % 360, 0.6, 1))
+        self.light_gates(color.hsv(gate_hue(now), 0.6, 1))
         for door in self.doors:
             a = radians(door['angle'])
             slide = door['open'] * DOOR_WIDTH * 0.48
             base = polar(ARENA_RADIUS - 0.4, door['angle'])
             for side, leaf in zip((-1, 1), door['leaves']):
                 leaf.position = base + Vec3(cos(a), 0, -sin(a)) * (side * slide)
-            # red while someone is coming through, a dim green when it is shut
+            # red while someone is coming through, a dim amber when it is shut
             door['lamp'].color = (color.hsv(0, 0.8, 0.75 + 0.25 * sin(now * 20)) if door['open'] > 0.05
-                                  else color.hsv(130, 0.5, 0.6))
+                                  else color.hsv(40, 0.6, 0.65))
         self.knock_cooldown -= dt
         if self.player is not None and self.knock_cooldown <= 0:
             self.check_bar_hit()

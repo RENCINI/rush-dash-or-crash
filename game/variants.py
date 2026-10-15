@@ -17,7 +17,7 @@ from game.weapons import (BOOMER_SIZE, CREAM, DARK, METAL, WOOD, Boomer, Buzzer,
 
 FLAMES = ((1, 0.92, 0.35, 1), (1, 0.6, 0.12, 1), (1, 0.3, 0.06, 1))
 ARC = color.hsv(190, 0.35, 1)
-HEALTH = color.hsv(130, 0.7, 1)
+HEALTH = color.hsv(160, 0.45, 1)
 
 
 # --- Popper ---
@@ -513,7 +513,7 @@ class Tiger(Boomer):
 class Poison(Boomer):
     """A small rocket that leaves a wide cloud of poison where it lands. It never hurts you."""
     name = 'POISON'
-    hue = 105
+    hue = 62                # toxic yellow: a green launcher would read as "parry this"
     accent_hue = 285
     kick = 2.2
     throw = T.POISON_PLAYER_KNOCK

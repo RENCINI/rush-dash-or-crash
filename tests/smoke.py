@@ -2563,6 +2563,16 @@ check('a hit flashes the body white inside its ink; fire, poison, cold and a stu
       f'flash {flashed}->{settled} statuses (shown, stars)={tints} cleared={cleared} dying={dying} '
       f'pixels +{pixels_after - pixels_before} gone after={gone} pale green mini={green_mini}')
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from palette import offenders
+
+green_file = Path(scratch.name) / 'green.json'
+green_file.write_text(json.dumps({'hue': T.GREEN_HUE}), encoding='utf-8')
+painted = offenders()
+check('nothing in the arena is painted parry green but what can be parried', not painted
+      and Settings(green_file).hue == 78, f'green that is not for parrying: {painted}; an old GREEN paint now '
+      f'{Settings(green_file).hue}')
+
 effects_file = Path(scratch.name) / 'effects.json'
 saved_effects = Settings(effects_file)
 saved_effects.effects = False

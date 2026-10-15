@@ -38,6 +38,8 @@ class Settings:
             self.name = clean_name(name).strip()
         if isinstance(hue, (int, float)) and not isinstance(hue, bool):
             self.hue = hue % 360
+            if self.hue == T.GREEN_HUE:
+                self.hue = 78       # the old GREEN paint is LIME now: green is kept for what can be parried
         if isinstance(volume, (int, float)) and not isinstance(volume, bool):
             self.volume = min(max(float(volume), 0.0), 1.0)
         keys, sensitivity = saved.get('keys'), saved.get('sensitivity')

@@ -7,7 +7,7 @@ from ursina import Entity, Vec3, color, time
 
 from data import tuning as T
 
-GAS = color.hsv(105, 0.75, 0.95)
+GAS = color.hsv(282, 0.6, 0.92)          # purple: green is kept for parrying
 PUFFS_PER_SECOND = 5.0      # for each metre of radius
 HEIGHT = 3.0
 

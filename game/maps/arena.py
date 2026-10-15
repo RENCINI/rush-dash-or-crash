@@ -129,6 +129,13 @@ def cone_collider(inner, outer, peak, base, segments=48):
     return Mesh(vertices=vertices, mode='triangle', static=True)
 
 
+def gate_hue(now):
+    """The hue a boost gate is lit, `now` seconds in: round the colour wheel, skipping the greens
+    that mean "parry this"."""
+    hue = (now * 75) % 280
+    return hue + 80 if hue >= 80 else hue
+
+
 class Arena(Entity):
     name = ''
     title = ''                  # shown under the level's number

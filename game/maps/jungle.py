@@ -4,7 +4,7 @@ from random import Random
 from ursina import Entity, Vec3, color, time
 
 from fx.toon import box, build, placed, solid
-from game.maps.arena import Arena, ball, drum, polar, wedge
+from game.maps.arena import Arena, ball, drum, gate_hue, polar, wedge
 
 RADIUS = 60
 CLIFF = 12                  # height of the rock round the clearing
@@ -30,9 +30,10 @@ MUSHROOM_RADIUS = 53
 ARCH_RADIUS = 26
 DENS = (35, 85, 155, 205, 275, 325, 0, 120, 240)    # holes in the cliff the crocodiles come out of
 
-GRASS = color.hsv(104, 0.52, 0.66)
-GRASS_ALT = color.hsv(98, 0.5, 0.72)
-MOSS = color.hsv(118, 0.5, 0.52)
+# the jungle is green, but a soft yellow-green and teal-green, never the neon that means "parry"
+GRASS = color.hsv(80, 0.42, 0.62)
+GRASS_ALT = color.hsv(74, 0.38, 0.68)
+MOSS = color.hsv(90, 0.4, 0.5)
 DIRT = color.hsv(32, 0.42, 0.66)
 DIRT_ALT = color.hsv(30, 0.42, 0.6)
 ROCK = color.hsv(28, 0.16, 0.56)
@@ -40,9 +41,9 @@ ROCK_ALT = color.hsv(24, 0.2, 0.48)
 SHADOW = color.hsv(250, 0.4, 0.14)
 BARK = color.hsv(24, 0.5, 0.4)
 BARK_ALT = color.hsv(28, 0.45, 0.5)
-LEAF = color.hsv(128, 0.6, 0.5)
-LEAF_ALT = color.hsv(112, 0.62, 0.62)
-LEAF_DARK = color.hsv(140, 0.6, 0.36)
+LEAF = color.hsv(158, 0.45, 0.46)
+LEAF_ALT = color.hsv(78, 0.44, 0.58)
+LEAF_DARK = color.hsv(170, 0.45, 0.32)
 WOOD = color.hsv(32, 0.5, 0.74)
 WOOD_ALT = color.hsv(28, 0.5, 0.62)
 ROPE = color.hsv(44, 0.4, 0.86)
@@ -309,7 +310,7 @@ class Jungle(Arena):
 
     def animate(self, dt):
         now = time.time()
-        self.light_gates(color.hsv((now * 90) % 360, 0.55, 1))
+        self.light_gates(color.hsv(gate_hue(now), 0.55, 1))
         throb = color.hsv(0, 0, 0.84 + 0.16 * sin(now * 8))
         for cap in self.caps:
             cap.color = throb

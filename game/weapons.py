@@ -447,7 +447,7 @@ class Buzzer(Weapon):
 class Longshot(Weapon):
     name = slot = 'LONGSHOT'
     heft = 1.0              # how hard a shot throws the view about; the branches differ
-    hue = 140
+    hue = 320
     accent_hue = 25
     kick = 2.4
     shake = T.SHAKE_LONGSHOT
