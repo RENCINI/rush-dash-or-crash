@@ -32,7 +32,10 @@ class Blasts(Entity):
         c = item['colour']
         ring, core = item['ring'], item['core']
         ring.scale = item['radius'] * (0.25 + 0.75 * (1 - (1 - t) ** 3))     # shoots out, then eases
-        ring.color = color.Color(c[0], c[1], c[2], (1 - t) ** 1.5)
+        # it darkens in steps as it spreads, and is gone before it could fade
+        shade = 1.0 if t < 0.45 else 0.68 if t < 0.72 else 0.42
+        ring.color = color.Color(c[0] * shade, c[1] * shade, c[2] * shade, 1)
+        ring.enabled = t < 0.9
         flash = max(0.0, 1 - t * 2.5)       # the core is gone well before the ring
         core.enabled = flash > 0 and item['core_on']
         core.scale = max(item['radius'] * 0.7 * (0.4 + 0.6 * flash), 0.001)

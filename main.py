@@ -10,6 +10,7 @@ from data import tuning as T
 from data.levels import LEVELS
 from data.progress import Progress
 from data.settings import Settings
+from fx.arcs import Arcs
 from fx.blast import Blasts
 from fx.juice import Juice
 from fx.particles import Particles
@@ -70,6 +71,7 @@ class Session(Entity):
         self.postfx = PostFx(self.settings.effects)
         self.particles = Particles()
         self.blasts = Blasts()
+        self.arcs = Arcs()
         self.pixels = Pixels()
         self.popups = Popups()
         self.enemies = Enemies(self)
@@ -253,7 +255,10 @@ class Session(Entity):
         """The katana caught something green. Each parry earns a drive charge."""
         self.player.drive = min(self.player.drive + 1, T.DRIVE_MAX)
         self.popups.show(point + Vec3(0, 1.3, 0), 'PARRY!', PARRY_GREEN, size=1.7)
-        self.particles.burst(point, PARRY_GREEN, count=26, speed=11, life=0.5, white=0.5)
+        # where the blade met it: an outlined shock ring, a shower of neon and a white flash
+        self.blasts.show(point, 1.6, PARRY_GREEN, life=0.25)
+        self.pixels.scatter(point, 'neon', count=36, speed=10, size=0.07, life=0.5, gravity=6, up=2)
+        self.postfx.pulse('flash', 0.45, 0.06)
         self.sfx.play('parry')
         if projectile:
             self.sfx.play('reflect')
@@ -367,8 +372,9 @@ class Session(Entity):
             killed = self.enemies.damage(enemy, amount, (away.x * flung, max(7, flung * 0.5), away.z * flung))
             self.on_hit(enemy, amount, enemy.centre, killed)
 
-        self.particles.burst(position, colour, count=24 if quiet else 60, speed=radius * 3.2, life=0.7,
-                             white=0.5)
+        if not look:        # a rocket's blast is all pixels: no confetti on top of it
+            self.particles.burst(position, colour, count=24 if quiet else 60, speed=radius * 3.2, life=0.7,
+                                 white=0.5)
         to_player = self.player.centre - position
         distance = to_player.length()
         if player_knock and 0.01 < distance < radius * 1.3:

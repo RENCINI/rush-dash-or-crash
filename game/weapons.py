@@ -6,6 +6,11 @@ from ursina import Entity, Vec3, camera, clamp, color, destroy, held_keys, mouse
 from data import tuning as T
 from data.controls import key_name, pressed
 from fx.toon import barrel, box, build, burst_mesh, slab, slug_mesh, star, streak_mesh
+
+SHELL_POOL = 12
+SHELL_LIFE = 1.4
+BRASS = color.hsv(44, 0.62, 0.95)
+HULL = color.hsv(355, 0.7, 0.86)
 from game import mods
 from game.body import hands, stripe
 
@@ -23,6 +28,21 @@ ROCKET_POOL = 8          # a sticky grenade waiting to be set off keeps its slot
 BOOMER_SIZE = 1.2       # the launcher and the rifle are big guns
 LONGSHOT_SIZE = 1.2
 FIRE_BUFFER = 0.12      # a click this early still fires a single-shot weapon
+
+def shell_model(colour, length, radius):
+    """A spent case, along z: its body and a darker rim at its base."""
+    rim = (colour[0] * 0.7, colour[1] * 0.7, colour[2] * 0.7)
+    return build([(barrel(radius, -length / 2, length / 2, sides=6), colour),
+                  (barrel(radius * 1.18, -length / 2, -length / 2 + length * 0.2, sides=6), rim)], radius * 0.4)
+
+
+def crystal_slug():
+    """An ice shard for a bullet, one unit long and one wide, point along z. Pale, to be tinted."""
+    return build([(barrel(0.5, 0, 0.62, sides=6), (0.82, 0.92, 1)),
+                  (barrel(0.5, 0.62, 1.0, sides=6, end_radius=0.04), (1, 1, 1))], outline=0.14)
+
+
+SLUG_SHAPES = {'bullet': slug_mesh, 'crystal': crystal_slug}
 
 # paint shared by every weapon: soft and saturated, never glowing
 DARK = color.hsv(230, 0.25, 0.3)
@@ -81,7 +101,13 @@ class Weapon:
     sound = ''
     muzzle = (0.03, 0.4)    # height and forward reach of the barrel tip
     flash = 1.0             # muzzle flash size and how long it lingers
+    flash_shape = (7, 0.42)     # its star: points, and how deep the notches between them go
+    shell = None            # (colour, length, radius) of the case it throws out, if it does...
+    eject = 'fire'          # ...as it fires, or when its pump or bolt is worked ('cycle')
     slug = (0.16, 0.6)      # width and length of the bullet drawn for each shot: cartoon-sized
+    slug_look = 'bullet'    # what the bullet looks like: see SLUG_SHAPES
+    trail_look = None       # a pixel look (fx/pixels.py) left hanging along the shot, if any
+    look = 'rocket'         # the pixel look of what it fires that bursts: its exhaust and its blast
     automatic = True        # False: one shot per click
     can_scope = False
     alt = False             # True: the scope key fires something else (see alt_now and alt_fire)
@@ -190,6 +216,8 @@ class Weapon:
         if not self.cycled and ready >= start:
             self.cycled = True
             self.game.sfx.play(sound, volume=0.7)
+            if self.shell is not None and self.eject == 'cycle':
+                self.arsenal.eject(self, 2 if self.slot == 'SCATTER' else 1)
         return sin(pi * clamp((ready - start) / (end - start), 0, 1))
 
 
@@ -201,6 +229,8 @@ class Popper(Weapon):
     shake = T.SHAKE_SHOT
     sound = 'shot_popper'
     muzzle = (0.03, 0.27)
+    flash_shape = (5, 0.45)
+    shell = (BRASS, 0.05, 0.012)
     hold = (0, -0.115, -0.085)
     fore = (-0.05, -0.14, -0.065)   # cupped under the other hand
 
@@ -246,6 +276,9 @@ class Scatter(Weapon):
     shake = T.SHAKE_SCATTER
     sound = 'shot_scatter'
     muzzle = (0.0, 0.47)
+    flash_shape = (9, 0.5)
+    shell = (HULL, 0.08, 0.02)
+    eject = 'cycle'         # the spent hulls come out as the pump is worked
     slug = (0.12, 0.28)     # stubby pellets
     barrels = 0.034         # each one's distance from the middle of the gun
     hold = (0, -0.14, -0.185)
@@ -324,6 +357,7 @@ class Boomer(Weapon):
     sound = 'shot_rocket'
     muzzle = (0.0, 0.56 * BOOMER_SIZE)
     flash = 2.4
+    flash_shape = (8, 0.55)
     hold = (0, -0.14, -0.025)
     fore = (0, -0.165, 0.24)
     trail = True            # what it fires leaves flame and smoke behind it
@@ -382,13 +416,13 @@ class Boomer(Weapon):
         game.player.add_impulse(-direction * self.stat('recoil'), cap=T.ROCKET_MAX_SPEED)
         arsenal.climb += T.ROCKET_CLIMB
         game.player.fov_kick = 11
-        game.blasts.show(muzzle + direction * 0.5, 0.42, self.colour, life=0.2, core=False)
-        # back-blast out of the exhaust bell
+        game.blasts.show(muzzle + direction * 0.7, 0.2, self.colour, life=0.12, core=False)
+        # back-blast out of the exhaust bell: fire that cools to smoke
         behind = muzzle - direction * 1.4 * BOOMER_SIZE
-        game.particles.burst(behind, (1, 1, 1), count=18, speed=6, size=0.035, life=0.6, up=1, white=1)
-        for _ in range(12):
-            game.particles.emit(behind, spread(-direction, 14) * uniform(8, 22), (1, 0.75, 0.25, 1),
-                                uniform(0.03, 0.05), uniform(0.12, 0.28), gravity=2)
+        for _ in range(14):
+            game.pixels.emit(behind, spread(-direction, 16) * uniform(6, 18), self.look, uniform(0.05, 0.1),
+                             uniform(0.2, 0.45), 0, 7, gravity=-1, drag=5)
+        game.pixels.scatter(behind, 'smoke', count=10, speed=2, size=0.1, life=0.9, gravity=-1.2, up=0.5)
 
     def burst(self, position):
         """The rocket this weapon fired has just gone off here."""
@@ -404,6 +438,8 @@ class Buzzer(Weapon):
     shake = T.SHAKE_BUZZER
     sound = 'shot_buzzer'
     muzzle = (0.0, 0.44)
+    flash_shape = (6, 0.35)
+    shell = (BRASS, 0.04, 0.01)
     slug = (0.12, 0.45)
     hold = (0, -0.13, -0.08)
     fore = (0, -0.075, 0.27)
@@ -454,6 +490,9 @@ class Longshot(Weapon):
     sound = 'shot_longshot'
     muzzle = (0.0, 0.78 * LONGSHOT_SIZE)
     flash = 2.2
+    flash_shape = (4, 0.22)     # long spikes
+    shell = (BRASS, 0.11, 0.02)
+    eject = 'cycle'             # thrown out as the bolt is worked
     slug = (0.3, 1.9)       # a spike, not a bullet
     automatic = False
     can_scope = True
@@ -520,7 +559,7 @@ class Longshot(Weapon):
         heft = self.heft
         end = arsenal.hitscan(origin, direction, muzzle, damage, self.stat('range'), self.colour, pierce=True,
                               width=0.1, slug=self.slug)
-        game.blasts.show(muzzle + direction * 0.4, 0.3, self.colour, life=0.16, core=False)    # ring off the muzzle
+        game.blasts.show(muzzle + direction * 0.6, 0.16, self.colour, life=0.1, core=False)    # ring off the muzzle
         self.struck = list(arsenal.pending)
         hits = arsenal.apply_hits(push=T.LONGSHOT_PUSH)
 
@@ -530,11 +569,11 @@ class Longshot(Weapon):
         game.player.add_impulse(-direction * T.LONGSHOT_RECOIL * heft)
         if heft >= 1:
             game.hud.blast()
-        game.particles.burst(muzzle + direction * 0.3, (1, 1, 1), count=12, speed=5, size=0.035, life=0.5, up=1.5,
-                             white=1)
+        game.pixels.scatter(muzzle + direction * 0.3, 'smoke', count=10, speed=2.5, size=0.06, life=0.7, gravity=-1,
+                            up=0.8, spread=0.1)
         for _ in range(14):
-            game.particles.emit(muzzle, spread(direction, 9) * uniform(18, 46), (self.colour[0], self.colour[1], self.colour[2], 1),
-                                uniform(0.04, 0.08), uniform(0.12, 0.3), gravity=4)
+            game.pixels.emit(muzzle, spread(direction, 9) * uniform(18, 46), 'spark', uniform(0.04, 0.07),
+                             uniform(0.12, 0.3), 0, 4, gravity=4, drag=2)
         # where it lands: a crater's worth of debris on a wall, a white burst through a body
         game.particles.burst(end, self.colour, count=34, speed=15, size=0.08, life=0.6, white=0.5)
         for point, _ in hits:
@@ -603,12 +642,20 @@ class Arsenal(Entity):
         self.pending = {}       # enemy -> [damage, direction, hit point], merged per shot
         self.paint_hue = None   # the player's colour; None leaves each weapon its own
         # a mesh belongs to one entity, so everything pooled below builds its own
-        self.muzzle_flash = Entity(parent=self.view, model=star(), enabled=False, double_sided=True)
-        Entity(parent=self.muzzle_flash, model=star(), scale=0.5, z=-0.002, color=color.white, double_sided=True)
-        self.flash_time = 0.0
+        # the muzzle flash: an outlined star of the weapon's own shape with a white-hot core, which
+        # steps to a smaller, turned star for its second frame
+        self.muzzle_flash = Entity(parent=self.view, enabled=False)
+        self.flash_core = Entity(parent=self.muzzle_flash, model=star(), scale=0.5, z=-0.004, color=color.white,
+                                 double_sided=True)
+        self.flash_stars = {}       # (points, notch) -> its outlined star
+        self.flash_time = self.flash_life = 0.0
+        self.flash_stepped = False
+        self.shells = [{'entity': Entity(enabled=False, ignore=True), 'looks': {}, 'life': 0.0, 'pos': Vec3(0, 0, 0),
+                        'vel': Vec3(0, 0, 0), 'spin': Vec3(0, 0, 0), 'bounced': False} for _ in range(SHELL_POOL)]
+        self.shell_cursor = 0
         # every shot is drawn as an outlined trail with an outlined bullet at its head
         self.tracers = [{'trail': Entity(model=streak_mesh(), enabled=False),
-                         'slug': Entity(model=slug_mesh(), enabled=False), 'live': False}
+                         'slug': Entity(model=slug_mesh(), enabled=False), 'shapes': {}, 'live': False}
                         for _ in range(TRACER_POOL)]
         self.tracer_cursor = 0
         self.impacts = [{'star': Entity(model=burst_mesh(), billboard=True, double_sided=True, enabled=False),
@@ -775,6 +822,12 @@ class Arsenal(Entity):
         self.flash_time -= dt
         if self.flash_time <= 0:
             self.muzzle_flash.enabled = False
+        elif self.flash_time < self.flash_life * 0.5 and not self.flash_stepped:
+            self.flash_stepped = True       # the second frame: no core, smaller, turned
+            self.flash_core.enabled = False
+            self.muzzle_flash.scale *= 0.7
+            self.muzzle_flash.rotation_z += 25
+        self.update_shells(dt)
         for tracer in self.tracers:
             if tracer['live']:
                 self.update_tracer(tracer, dt)
@@ -855,16 +908,82 @@ class Arsenal(Entity):
 
         game = self.game
         self.kick = weapon.kick
-        game.player.fov_kick = max(game.player.fov_kick, weapon.kick * 2)
+        game.player.fov_kick = max(game.player.fov_kick, weapon.kick * 2, T.FOV_PUNCH_MIN)
         game.juice.shake(weapon.shake)
+        game.juice.recoil(weapon.kick * T.RECOIL_PUSH)
         game.sfx.play(weapon.sound, pitch=uniform(0.94, 1.06))
-        self.muzzle_flash.enabled = True
-        self.muzzle_flash.color = weapon.colour
-        self.muzzle_flash.rotation_z = uniform(0, 360)
-        self.muzzle_flash.scale = uniform(0.11, 0.17) * weapon.kick ** 0.5 * weapon.flash
-        self.flash_time = 0.05 * weapon.flash
+        self.show_flash(weapon)
+        if weapon.shell is not None and weapon.eject == 'fire':
+            self.eject(weapon)
         if weapon.rounds <= 0:
             self.reload()       # the last round: reload without being asked
+
+    def show_flash(self, weapon):
+        shape = weapon.flash_shape
+        if shape not in self.flash_stars:
+            self.flash_stars[shape] = Entity(parent=self.muzzle_flash, model=burst_mesh(*shape), double_sided=True)
+        for key, entity in self.flash_stars.items():
+            entity.enabled = key == shape
+        self.flash_stars[shape].color = weapon.colour
+        flash = self.muzzle_flash
+        flash.enabled = self.flash_core.enabled = True
+        flash.rotation_z = uniform(0, 360)
+        flash.scale = uniform(0.12, 0.17) * weapon.kick ** 0.5 * weapon.flash
+        self.flash_time = self.flash_life = 0.05 * weapon.flash
+        self.flash_stepped = False
+
+    # --- spent cases ---
+
+    def eject(self, weapon, count=1):
+        """Throw spent cases out of the right of the gun: they tumble, bounce once and lie still."""
+        player = self.game.player
+        port = self.view.world_position + camera.right * 0.08 + camera.up * 0.05 + camera.forward * 0.2
+        for _ in range(count):
+            shell = self.shells[self.shell_cursor]
+            self.shell_cursor = (self.shell_cursor + 1) % SHELL_POOL
+            entity, spec = shell['entity'], weapon.shell
+            if spec not in shell['looks']:
+                shell['looks'][spec] = Entity(parent=entity, model=shell_model(*spec), ignore=True)
+            for key, look in shell['looks'].items():
+                look.enabled = key == spec
+            shell.update(life=SHELL_LIFE, bounced=False, pos=Vec3(*port),
+                         vel=camera.right * uniform(2.5, 4.2) + camera.up * uniform(1.8, 3.4)
+                         - camera.forward * uniform(0, 1) + Vec3(player.vel.x, 0, player.vel.z) * 0.9,
+                         spin=Vec3(uniform(500, 900), uniform(-300, 300), uniform(-200, 200)))
+            entity.position = shell['pos']
+            entity.scale = 1
+            entity.enabled = True
+
+    def update_shells(self, dt):
+        arena = self.game.map
+        for shell in self.shells:
+            if shell['life'] <= 0:
+                continue
+            shell['life'] -= dt
+            entity = shell['entity']
+            if shell['life'] <= 0:
+                entity.enabled = False
+                continue
+            vel, pos = shell['vel'], shell['pos']
+            vel.y -= 18 * dt
+            pos += vel * dt
+            floor = arena.ground_height(pos.x, pos.z, pos.y + 0.4)
+            if pos.y < floor + 0.02 and vel.y < 0:
+                pos.y = floor + 0.02
+                if shell['bounced']:
+                    vel = shell['vel'] = Vec3(0, 0, 0)      # it lies where it fell
+                    shell['spin'] = Vec3(0, 0, 0)
+                else:
+                    shell['bounced'] = True
+                    vel.y *= -0.35
+                    vel.x *= 0.5
+                    vel.z *= 0.5
+                    shell['spin'] = shell['spin'] * 0.4
+            shell['pos'] = pos
+            entity.position = pos
+            entity.rotation += shell['spin'] * dt
+            # it goes in two steps, not a fade
+            entity.scale = 1 if shell['life'] > 0.3 else 0.6 if shell['life'] > 0.15 else 0.3
 
     # --- hitscan ---
 
@@ -886,10 +1005,33 @@ class Arsenal(Entity):
             entry[0] += damage
         stopped = bool(hits) and not pierce
         end = origin + direction * (hits[0][0] if stopped else limit)
-        self.show_tracer(muzzle, end, colour, width, life, slug)
+        weapon = self.weapon
+        tracer = self.show_tracer(muzzle, end, colour, width, life, slug, weapon.slug_look)
         if not stopped and wall.hit:
-            game.particles.sparks(end, wall.world_normal, colour)
+            # the sparks fly when the drawn bullet gets there, not when it leaves
+            spark = (Vec3(*wall.world_normal), colour)
+            if tracer is not None and tracer['travel'] > 0:
+                tracer['spark'] = spark
+            else:
+                self.spark(end, *spark)
+        if weapon.trail_look:
+            self.trail(muzzle, end, weapon.trail_look)
         return end
+
+    def spark(self, point, normal, colour):
+        self.game.particles.sparks(point, normal, colour)
+        self.game.pixels.scatter(point + normal * 0.1, 'spark', count=4, speed=4, size=0.04, life=0.25, gravity=10,
+                                 up=1)
+
+    def trail(self, start, end, look):
+        """Pixels left hanging along a shot, drifting and cooling: embers, frost, shadow, light."""
+        along = end - start
+        length = along.length()
+        pixels = self.game.pixels
+        for k in range(2, min(int(length / 1.4), 40)):     # from a little way out: not in the eye
+            at = start + along * (k * 1.4 / length)
+            pixels.emit(at, (uniform(-0.4, 0.4), uniform(0.2, 1.2), uniform(-0.4, 0.4)), look, uniform(0.04, 0.08),
+                        uniform(0.35, 0.6), 1, 6, gravity=-0.6, drag=1.5)
 
     def apply_hits(self, push=4.0):
         """Deal the collected damage. Returns [(hit point, killed), ...], nearest first."""
@@ -909,17 +1051,31 @@ class Arsenal(Entity):
             game.sfx.play('hit', volume=0.7, pitch=hit_pitch(dealt))
         return hits
 
-    def show_tracer(self, start, end, colour, width=TRACER_WIDTH, life=TRACER_TIME, slug=None):
-        """Draw one shot. `slug` is the (width, length) of the bullet at its head; None is a bare beam."""
+    def show_tracer(self, start, end, colour, width=TRACER_WIDTH, life=TRACER_TIME, slug=None, look='bullet'):
+        """Draw one shot. `slug` is the (width, length) of the bullet at its head; None is a bare beam.
+        `look` is the bullet's shape (SLUG_SHAPES). Returns the tracer, or None for one too short to draw."""
         length = (end - start).length()
         if length < 0.5:
-            return
+            return None
         tracer = self.tracers[self.tracer_cursor]
+        if tracer['live'] and tracer.get('spark') is not None:
+            self.spark(tracer['end'], *tracer['spark'])     # one cut short still throws its sparks
+        tracer['spark'] = None
+        if look == 'bullet':
+            bullet = tracer['slug']
+        else:
+            if look not in tracer['shapes']:
+                tracer['shapes'][look] = Entity(model=SLUG_SHAPES[look](), enabled=False)
+            bullet = tracer['shapes'][look]
+        for other in (tracer['slug'], *tracer['shapes'].values()):
+            if other is not bullet:
+                other.enabled = False
+        tracer['bullet'] = bullet
         self.tracer_cursor = (self.tracer_cursor + 1) % TRACER_POOL
         travel = clamp(length / SLUG_SPEED, 0.045, 0.14) if slug else 0.0
         tracer.update(live=True, age=0.0, travel=travel, life=life, width=width, length=length, start=Vec3(*start),
                       along=(end - start) / length, end=Vec3(*end), colour=colour, slug_size=slug)
-        trail, bullet = tracer['trail'], tracer['slug']
+        trail = tracer['trail']
         trail.position = start
         trail.look_at(end)
         trail.scale = (width, width, length if not slug else 0.01)
@@ -944,14 +1100,17 @@ class Arsenal(Entity):
             tail = max(reached - STREAK * tracer['width'], first)
             trail.position = tracer['start'] + tracer['along'] * tail
             trail.scale_z = max(reached - tail, 0.01)
-            tracer['slug'].position = tracer['start'] + tracer['along'] * max(reached - tracer['slug_size'][1], 0)
+            tracer['bullet'].position = tracer['start'] + tracer['along'] * max(reached - tracer['slug_size'][1], 0)
             return
-        if tracer['slug'].enabled:
+        if tracer['bullet'].enabled:
             # it has landed: the streak goes with it
-            tracer['slug'].enabled = False
+            tracer['bullet'].enabled = False
             tracer['live'] = False
             trail.enabled = False
             self.show_impact(tracer['end'], tracer['colour'], tracer['slug_size'][0] * 3.5)
+            if tracer.get('spark') is not None:
+                self.spark(tracer['end'], *tracer['spark'])
+                tracer['spark'] = None
             return
         fade = 1 - (age - travel) / tracer['life']
         if fade <= 0:
@@ -1043,6 +1202,9 @@ class Arsenal(Entity):
             rocket['blink'] = T.STICKY_BLINK
             lamp.color = color.white
             self.game.sfx.play('beep', volume=0.3)
+            # each beep throws off a few sparks of its own colour, so it can be found
+            self.game.pixels.scatter(rocket['pos'], rocket['weapon'].look, count=6, speed=2.5, size=0.05, life=0.3,
+                                     gravity=0, up=0.5, spread=0.1)
         elif rocket['blink'] < T.STICKY_BLINK * 0.6:
             lamp.color = color.hsv(0, 0, 0.35)
         if rocket['life'] <= 0:
@@ -1076,18 +1238,22 @@ class Arsenal(Entity):
         body.position = pos
         rocket['spin'].rotation_z += 720 * dt
 
-        # exhaust: a hot flame that dies at once and smoke that hangs in the air
-        particles = self.game.particles
+        # exhaust: fire that cools through its palette as it falls behind, and smoke that hangs in
+        # the air; a grenade with no motor leaves a dotted line along its arc instead
+        pixels = self.game.pixels
         tail = pos - direction * 0.5
         rocket['age'] += dt
         if not weapon.trail:
-            rocket['age'] = 0.0
-        for _ in range(2 if rocket['age'] > 0.07 else 0):       # not until it has cleared the launcher
-            particles.emit(tail, -direction * uniform(4, 10) + Vec3(uniform(-2, 2), uniform(-2, 2), uniform(-2, 2)),
-                           (1, uniform(0.55, 0.9), 0.2, 1), uniform(0.1, 0.18), uniform(0.08, 0.16), gravity=0)
-        if rocket['age'] > 0.07:
-            particles.emit(tail, Vec3(uniform(-1, 1), uniform(0, 1.5), uniform(-1, 1)), (0.85, 0.85, 0.9, 1),
-                           uniform(0.12, 0.2), uniform(0.4, 0.7), gravity=-2)
+            rocket['dot'] = rocket.get('dot', 0.0) - dt
+            if rocket['dot'] <= 0:
+                rocket['dot'] = 0.03
+                pixels.emit(pos, (0, 0, 0), weapon.look, 0.06, 0.55, 1, 6, drag=0)
+        elif rocket['age'] > 0.07:          # not until it has cleared the launcher
+            for _ in range(2):
+                pixels.emit(tail, -direction * uniform(3, 8) + Vec3(uniform(-1.5, 1.5), uniform(-1.5, 1.5), uniform(-1.5, 1.5)),
+                            weapon.look, uniform(0.07, 0.12), uniform(0.2, 0.35), 0, 6, gravity=-1, drag=3)
+            pixels.emit(tail, Vec3(uniform(-0.6, 0.6), uniform(0, 1.2), uniform(-0.6, 0.6)), 'smoke', uniform(0.1, 0.16),
+                        uniform(0.6, 1.0), 0, 4, gravity=-1.5, drag=1.5)
         if burst and rocket['remote'] and rocket['life'] > 0:
             self.stick(rocket, None if bodies else wall, bodies[0][1] if bodies else None)
         elif burst:

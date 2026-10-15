@@ -2563,6 +2563,29 @@ check('a hit flashes the body white inside its ink; fire, poison, cold and a stu
       f'flash {flashed}->{settled} statuses (shown, stars)={tints} cleared={cleared} dying={dying} '
       f'pixels +{pixels_after - pixels_before} gone after={gone} pale green mini={green_mini}')
 
+clear_enemies()
+place(polar(26, 200), yaw=290)
+arsenal.select(0, quiet=True)
+run(0.3)
+arsenal.cooldown = 0
+arsenal.fire()
+flash = (arsenal.muzzle_flash.enabled, arsenal.flash_core.enabled,
+         [shape for shape, star_ in arsenal.flash_stars.items() if star_.enabled])
+cases = [c for c in arsenal.shells if c['life'] > 0]
+run(2 / 60)
+stepped = (arsenal.flash_core.enabled, arsenal.flash_stepped)
+run(1.2)
+fallen = cases and cases[0]['bounced'] and cases[0]['vel'].length() < 0.01
+s.arcs.show(p.centre + Vec3(0, 0, 3), p.centre + Vec3(6, 0, 3), (1, 1, 0.4, 1))
+arcing = sum(item['entity'].enabled for item in s.arcs.items)
+run(0.3)
+check('a shot flashes an outlined star of its own shape and steps it, throws a case that bounces and lies '
+      'still; lightning crackles and goes',
+      flash == (True, True, [arsenal.weapons[0].flash_shape]) and stepped == (False, True) and len(cases) == 1
+      and fallen and arcing == 1 and not any(item['entity'].enabled for item in s.arcs.items),
+      f'flash (on, core, shape)={flash} second frame (core, stepped)={stepped} cases={len(cases)} lying={fallen} '
+      f'arcs={arcing}')
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from palette import offenders
 

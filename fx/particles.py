@@ -16,7 +16,9 @@ CORNERS = np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]], dtype=np.float32)
 
 class Particles(Entity):
     """Every particle in the game is one square in a single mesh that is rewritten each
-    frame from numpy arrays, so a burst of confetti costs no extra scene objects."""
+    frame from numpy arrays, so a burst of confetti costs no extra scene objects. A piece of
+    confetti spins, may be a strip rather than a square, and goes in three steps, smaller and
+    darker each time: solid colour, never faded."""
 
     def __init__(self):
         super().__init__()
@@ -28,6 +30,9 @@ class Particles(Entity):
         self.life = np.ones(n, np.float32)      # age >= life means the slot is free
         self.size = np.zeros(n, np.float32)
         self.gravity = np.zeros(n, np.float32)
+        self.spin = np.zeros(n, np.float32)     # its angle when it set off...
+        self.turn = np.zeros(n, np.float32)     # ...and how fast it turns, radians a second
+        self.aspect = np.ones(n, np.float32)    # 1 a square; less, a strip
         self.cursor = 0
         self.live = False
         self.buffer = np.zeros(n * 4, VERTEX)
@@ -51,15 +56,13 @@ class Particles(Entity):
         self.shader = unlit_shader
         path = self.attachNewNode(self.geom_node)
         path.setAttrib(ColorAttrib.makeVertex(), 10)
-        path.setTransparency(TransparencyAttrib.MAlpha)
+        path.setTransparency(TransparencyAttrib.MNone)
         path.setTwoSided(True)
-        path.setDepthWrite(False)
-        path.setBin('transparent', 10)
         self.upload()
 
     # --- emitting ---
 
-    def emit(self, position, velocity, colour, size, life, gravity=24.0):
+    def emit(self, position, velocity, colour, size, life, gravity=24.0, aspect=1.0, turn=0.0):
         i = self.cursor
         self.cursor = (i + 1) % MAX_PARTICLES
         self.pos[i] = position
@@ -69,6 +72,9 @@ class Particles(Entity):
         self.life[i] = life
         self.age[i] = 0
         self.gravity[i] = gravity
+        self.spin[i] = uniform(0, pi)
+        self.turn[i] = turn
+        self.aspect[i] = aspect
         self.live = True
 
     def burst(self, position, colour, count=40, speed=12.0, size=0.09, life=0.9, up=4.0, white=0.25):
@@ -82,7 +88,8 @@ class Particles(Entity):
             shade = uniform(0.75, 1.15)
             tint = (1, 1, 1, 1) if uniform(0, 1) < white else (r * shade, g * shade, b * shade, 1)
             self.emit((x, y, z), (cos(a) * flat * s, h * s + up, sin(a) * flat * s), tint,
-                      size * uniform(0.6, 1.4), life * uniform(0.6, 1.2))
+                      size * uniform(0.6, 1.4), life * uniform(0.6, 1.2), aspect=uniform(0.35, 1.0),
+                      turn=uniform(-14, 14))
 
     def sparks(self, position, normal, colour, count=8, speed=9.0):
         """A small spray away from a surface, for bullet impacts."""
@@ -119,13 +126,20 @@ class Particles(Entity):
     def upload(self):
         alive = self.age < self.life
         remaining = np.clip(1 - self.age / self.life, 0, 1)
-        half = np.where(alive, self.size * np.minimum(1, remaining * 3), 0).astype(np.float32)
+        step = np.ceil(remaining * 3) / 3        # 1, then 2/3, then 1/3: it goes in steps
+        half = np.where(alive, self.size * step, 0).astype(np.float32)
         right = np.array(camera.right, np.float32)
         up = np.array(camera.up, np.float32)
-        offsets = CORNERS[:, 0, None] * right + CORNERS[:, 1, None] * up        # (4, 3)
-        corners = self.pos[:, None, :] + offsets[None, :, :] * half[:, None, None]
+        angle = self.spin + self.turn * self.age
+        c, s = np.cos(angle)[:, None], np.sin(angle)[:, None]
+        cx, cy = CORNERS[None, :, 0], CORNERS[None, :, 1] * self.aspect[:, None]       # (n, 4)
+        u, v = cx * c - cy * s, cx * s + cy * c
+        offsets = u[:, :, None] * right + v[:, :, None] * up                            # (n, 4, 3)
+        corners = self.pos[:, None, :] + offsets * half[:, None, None]
         self.buffer['pos'] = corners.reshape(-1, 3)
-        colours = (np.clip(self.col, 0, 1) * 255).astype(np.uint8)
+        shade = (0.5 + 0.5 * step)[:, None]
+        colours = (np.clip(self.col * np.concatenate((np.repeat(shade, 3, axis=1), np.ones_like(shade)), axis=1),
+                           0, 1) * 255).astype(np.uint8)
         self.buffer['col'] = np.repeat(colours, 4, axis=0)
         data = self.geom_node.modifyGeom(0).modifyVertexData()
         data.modifyArray(0).modifyHandle().copyDataFrom(self.buffer.tobytes())

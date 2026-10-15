@@ -16,9 +16,11 @@ from ursina import Entity, Mesh, Vec3, camera, color, destroy, time
 
 from data import tuning as T
 from data.controls import pressed
-from fx.toon import barrel, box, build, slab
+from fx.shaders import Look
+from fx.toon import OUTLINE, barrel, box, build, slab
 from game.body import arm, stripe
 from game.weapons import hit_pitch
+from ui.hud import player_colour
 
 STEEL = color.hsv(205, 0.1, 0.93)
 EDGE = color.hsv(190, 0.08, 1)
@@ -29,6 +31,8 @@ PARRY_GREEN = color.hsv(T.GREEN_HUE, 0.7, 1)
 HILT = Vec3(0.12, -0.3, 0.42)       # where the hand holds it, in camera space
 SWING = 68                          # degrees to each side of straight ahead
 STOW_TIME = 0.16                    # the gun takes this long to come back up
+TRAIL_SEGMENTS = 14
+TRAIL_TAIL = 0.55                   # how much of the swing the trail keeps behind the blade
 
 
 def blade_model():
@@ -44,17 +48,17 @@ def blade_model():
     ])
 
 
-def trail_mesh(steps=14):
-    """Flat crescent swept by the blade: solid at the leading end, clear at the tail."""
+def trail_segment(i, steps=TRAIL_SEGMENTS):
+    """One piece of the crescent the blade sweeps: a band in hard steps, pale toward the hilt, the
+    colour of the slash out to the tip, inside a dark rim. White, so the slash's colour tints it."""
+    a0, a1 = (radians(-SWING + 2 * SWING * j / steps) for j in (i, i + 1))
     vertices, colours = [], []
-    for i in range(steps):
-        a0, a1 = (radians(-SWING + 2 * SWING * j / steps) for j in (i, i + 1))
-        f0, f1 = i / steps, (i + 1) / steps
-        inner = [(sin(a) * 0.45, 0, cos(a) * 0.45) for a in (a0, a1)]
-        outer = [(sin(a) * 0.95, 0, cos(a) * 0.95) for a in (a0, a1)]
+    for (r0, r1), tint in (((0.45, 0.6), (0.78, 0.78, 0.78, 1)), ((0.6, 0.92), (1, 1, 1, 1)),
+                           ((0.92, 0.99), (*OUTLINE, 1))):
+        inner = [(sin(a) * r0, 0, cos(a) * r0) for a in (a0, a1)]
+        outer = [(sin(a) * r1, 0, cos(a) * r1) for a in (a0, a1)]
         vertices += [inner[0], outer[0], outer[1], inner[0], outer[1], inner[1]]
-        colours += [(1, 1, 1, f0 * 0.3), (1, 1, 1, f0), (1, 1, 1, f1),
-                    (1, 1, 1, f0 * 0.3), (1, 1, 1, f1), (1, 1, 1, f1 * 0.3)]
+        colours += [tint] * 6
     return Mesh(vertices=vertices, colors=colours, mode='triangle', static=True)
 
 
@@ -66,7 +70,13 @@ class Katana(Entity):
         self.blade = Entity(parent=self.hand, model=blade_model(), rotation_z=90)   # held flat
         self.grip = None
         self.repaint(None)
-        self.trail = Entity(parent=self.hand, model=trail_mesh(), double_sided=True)
+        # the crescent is in pieces: they show as the blade passes them and go, one by one, behind it
+        self.trail = Entity(parent=self.hand)
+        self.pieces = [Entity(parent=self.trail, model=trail_segment(i), double_sided=True, enabled=False)
+                       for i in range(TRAIL_SEGMENTS)]
+        self.blade_look = Look(self.blade)
+        self.blade_flash = 0.0
+        self.tint = color.white
         self.age = 99.0         # seconds since the slash began
         self.cooldown = 0.0
         self.side = 1           # slashes alternate: 1 sweeps right to left
@@ -77,6 +87,7 @@ class Katana(Entity):
         if self.grip is not None:
             destroy(self.grip)
         self.grip = Entity(parent=self.hand, model=build(arm((0, 0, -0.06), (0.1, -0.34, -0.5), stripe(hue))))
+        self.tint = player_colour(hue)
 
     @property
     def busy(self):
@@ -101,7 +112,7 @@ class Katana(Entity):
         self.side = -self.side
         self.struck.clear()
         self.trail.scale_x = self.side
-        self.trail.color = color.white
+        self.trail.color = self.tint
         self.hand.enabled = True
         self.game.sfx.play('slash')
         self.game.juice.shake(T.SHAKE_SLASH)
@@ -124,8 +135,12 @@ class Katana(Entity):
         swept = 1 - (1 - t) ** 3
         self.blade.rotation_y = self.side * SWING * (1 - 2 * swept)
         self.blade.z = 0.1 * sin(pi * t)
-        tint = self.trail.color
-        self.trail.color = color.Color(tint[0], tint[1], tint[2], (1 - t) ** 1.5)
+        # the pieces the blade has passed show; those it passed longest ago go again
+        for i, piece in enumerate(self.pieces):
+            at = (i + 0.5) / TRAIL_SEGMENTS
+            piece.enabled = 1 - swept <= at <= 1 - swept + TRAIL_TAIL * (1 - t * 0.6)
+        self.blade_flash -= dt
+        self.blade_look.set('flash', 1.0 if self.blade_flash > 0 else 0.0)
 
     # --- hitting ---
 
@@ -162,6 +177,7 @@ class Katana(Entity):
         knock = T.KATANA_KNOCK * (1.6 if green else 1)
         killed = game.enemies.damage(enemy, amount, (away.x * knock, 4, away.z * knock))
         game.on_hit(enemy, amount, point, killed)
+        game.arsenal.show_impact(point, self.trail.color, 0.9)      # a star where the blade bit
         game.hud.hit_marker(killed)
         game.sfx.play('hit', volume=0.8, pitch=hit_pitch(amount) * 0.85)
         if green:
@@ -187,6 +203,7 @@ class Katana(Entity):
 
     def parried(self, point, projectile=False):
         self.trail.color = PARRY_GREEN
+        self.blade_flash = 0.1          # the blade rings white
         self.game.on_parry(point, projectile)
 
     def try_parry(self, source):

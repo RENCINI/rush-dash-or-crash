@@ -32,6 +32,7 @@ class Flamethrower(Popper):
     sound = 'flame'
     muzzle = (0.03, 0.35)
     flash = 0.5
+    flash_shape = (6, 0.6)      # a tongue of flame at the nozzle, more than a star
 
     def build_view(self):
         super().build_view()
@@ -77,9 +78,12 @@ class Flamethrower(Popper):
             self.arsenal.pending[enemy] = [damage, direction, enemy.centre]
             enemy.ignite(burn, self.stat('burn_time'))
         self.arsenal.apply_hits(push=1.0)
-        for _ in range(7):
-            game.particles.emit(muzzle, spread(direction, self.stat('cone')) * uniform(0.45, 1) * reach * 3.2,
-                                choice(FLAMES), uniform(0.1, 0.26), uniform(0.22, 0.4), gravity=-5)
+        # a stream of fire that leaves white-hot and cools through yellow and red to smoke, growing
+        # and rising as it goes
+        start = muzzle + direction * 0.7        # clear of the eye, where squares this close would fill it
+        for _ in range(9):
+            game.pixels.emit(start, spread(direction, self.stat('cone')) * uniform(0.45, 1) * reach * 3.2, 'flame',
+                             uniform(0.04, 0.13), uniform(0.25, 0.45), 0, 7, gravity=-5, drag=2.5)
 
 
 class Taser(Popper):
@@ -88,6 +92,7 @@ class Taser(Popper):
     hue = 55
     accent_hue = 195
     sound = 'shot_popper'
+    trail_look = 'spark'
 
     def build_view(self):
         super().build_view()
@@ -127,7 +132,9 @@ class Taser(Popper):
                 # fork: the arc splits, and only its first end carries on down the line
                 for target in near[:2 if self.perk('fork') else 1]:
                     arsenal.pending[target] = [amount, (target.centre - last.centre).normalized(), target.centre]
-                    arsenal.show_tracer(last.centre, target.centre, ARC, 0.09, 0.16)
+                    # lightning, crackling from one to the next, with a star where it strikes
+                    game.arcs.show(last.centre, target.centre, ARC, width=0.14, life=0.18)
+                    arsenal.show_impact(target.centre, ARC, 0.6)
                     struck.append(target)
                 last = near[0]
             for enemy in struck:
@@ -149,7 +156,8 @@ class Impulse(Scatter):
     sound = 'shot_rocket'
     muzzle = (0.0, 0.36)
     flash = 1.6
-    trail = False               # a grenade has no motor
+    trail = False               # a grenade has no motor: it leaves a dotted line along its arc
+    look = 'impulse'
     drop = T.GRENADE_DROP
     alt = True                  # the scope key fires a sticky grenade, and sets it off
     hold = (0, -0.14, -0.25)
@@ -261,6 +269,7 @@ class Ice(Scatter):
     hue = 196
     accent_hue = 215
     sound = 'shot_scatter'
+    slug_look = 'crystal'       # shards of ice, not pellets
 
     def build_view(self):
         super().build_view()
@@ -287,9 +296,7 @@ class Ice(Scatter):
         slow, seconds, freeze = self.stat('chill'), self.stat('chill_time'), self.perk('deep_freeze')
         for enemy, entry in pending.items():
             enemy.chill(slow, seconds, freeze)
-            for _ in range(6):
-                game.particles.emit(entry[2], Vec3(uniform(-3, 3), uniform(0, 4), uniform(-3, 3)), (0.8, 0.95, 1, 1),
-                                    uniform(0.05, 0.1), uniform(0.3, 0.6), gravity=6)
+            game.pixels.scatter(entry[2], 'frost', count=8, speed=4, size=0.07, life=0.6, gravity=8, up=2)
 
 
 # --- Longshot ---
@@ -304,6 +311,8 @@ class Dragon(Longshot):
     kick = 3.0
     shake = 1.1
     flash = 2.8
+    flash_shape = (6, 0.3)
+    trail_look = 'dragon'       # embers left hanging all along the shot
     reticle = 'dragon'
     scope_fov = 28.0        # a long glass: it sees further in than the plain rifle's
 
@@ -554,6 +563,7 @@ class Poison(Boomer):
 class Turner(Buzzer):
     """A Buzzer whose bullets now and then bring an enemy over to the player's side."""
     role = ''               # 'fighter' or 'healer'
+    convert_look = 'white'  # the pixels an enemy bursts in as it changes sides
 
     def fire(self, origin, direction, muzzle):
         self.turned = []
@@ -564,7 +574,7 @@ class Turner(Buzzer):
             seconds = self.stat('ally_time')
             if game.enemies.convert(enemy, self.role, seconds, **self.ally_numbers()):
                 game.popups.show(point + Vec3(0, 1.8, 0), 'CONVERTED!', self.colour, size=2.2)
-                game.particles.burst(point, self.colour, count=60, speed=12, life=0.8, white=0.5)
+                game.pixels.scatter(point, self.convert_look, count=50, speed=10, size=0.08, life=0.8, gravity=4, up=2)
                 game.blasts.show(point, 4.0, self.colour, life=0.5, core=False)
                 game.hud.notice(f'{self.role.upper()} ON YOUR SIDE FOR {seconds:.0f}s')
                 game.hud.hit_marker(True, size=2.2, tint=self.colour)
@@ -588,6 +598,8 @@ class Darkness(Turner):
     hue = 275
     accent_hue = 350
     role = 'fighter'
+    trail_look = 'legion'       # a wisp of violet shadow along each shot
+    convert_look = 'legion'
 
     def build_view(self):
         super().build_view()
@@ -627,13 +639,12 @@ class Darkness(Turner):
         game = self.game
         game.player.heal(amount)
         game.popups.show(point + Vec3(0, 1.0, 0), f'+{amount:.0f} HP', HEALTH, size=1.8)
-        # drops of it fly from the wound into the player's chest
+        # drops of it, crimson, fly from the wound into the player's chest
         flight = 0.3
         to = camera.world_position - Vec3(0, 0.35, 0) - point
         for _ in range(14):
             start = point + Vec3(uniform(-0.4, 0.4), uniform(-0.4, 0.4), uniform(-0.4, 0.4))
-            game.particles.emit(start, to / flight * uniform(0.85, 1.1), (HEALTH[0], HEALTH[1], HEALTH[2], 1),
-                                uniform(0.07, 0.12), flight, gravity=0)
+            game.pixels.emit(start, to / flight * uniform(0.85, 1.1), 'heart', uniform(0.06, 0.1), flight, 1, 4, drag=0)
         game.hud.heal_flash(amount)
         game.sfx.play('steal', volume=1.0, pitch=uniform(0.95, 1.1))
 
@@ -645,6 +656,8 @@ class Light(Turner):
     accent_hue = 190
     role = 'healer'
     kick = 0.6
+    trail_look = 'gold'         # a glitter of gold along each shot
+    convert_look = 'heart'
 
     def build_view(self):
         super().build_view()

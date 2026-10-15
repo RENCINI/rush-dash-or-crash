@@ -1,3 +1,5 @@
+from math import sin
+
 from ursina import Entity, Vec3, Vec4, camera, color, scene, time
 
 from ui.font import Label
@@ -57,6 +59,8 @@ class Popups(Entity):
             text.position = at
             t = item['age'] / LIFE
             pop = 1 + 0.8 * max(0.0, 1 - item['age'] / 0.1)
-            text.scale = item['size'] * pop
-            c = item['colour']
-            text.color = color.Color(c[0], c[1], c[2], min(1.0, (1 - t) * 4))
+            # it goes in two steps, smaller each time, and wobbles as it comes in: never a fade
+            fall = 1.0 if t < 0.75 else 0.7 if t < 0.88 else 0.4
+            text.scale = item['size'] * pop * fall
+            text.rotation_z = sin(item['age'] * 45) * 10 * max(0.0, 1 - item['age'] / 0.25)
+            text.color = item['colour']

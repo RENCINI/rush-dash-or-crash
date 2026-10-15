@@ -421,9 +421,11 @@ class Enemy:
         if target is player:
             if self.ally == 'healer' and distance < self.heal_reach and player.hp < T.PLAYER_HP:
                 player.heal(self.heal_rate * dt)
-                if uniform(0, 1) < 12 * dt:
-                    game.particles.emit(player.centre + Vec3(uniform(-0.5, 0.5), -0.6, uniform(-0.5, 0.5)),
-                                        (0, 2.5, 0), (0.6, 1, 0.5, 1), 0.07, 0.6, gravity=0)
+                # a dotted line of light from the healer to the player, the dots running along it
+                if uniform(0, 1) < 14 * dt:
+                    start = self.centre + Vec3(0, 0.4 * self.size, 0)
+                    to = player.centre - Vec3(0, 0.4, 0) - start
+                    game.pixels.emit(start, to / 0.45, 'heart', 0.07, 0.45, 1, 3, drag=0)
             if distance < T.ALLY_FOLLOW:
                 return 0.0, 0.0
         elif distance < T.ALLY_REACH * self.reach + target.radius - T.ASTRO_HIT_RADIUS:
