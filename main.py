@@ -317,8 +317,7 @@ class Session(Entity):
         player, chain = self.player, self.chain
         points, styles, climbed = chain.kill(chain.worth(enemy), player.rush.damage_multiplier,
                                              airborne=not player.grounded, sliding=player.sliding)
-        tier = chain.tier
-        self.particles.burst(centre, enemy.colour, count=46)
+        tier = chain.tier       # the body bursts into pixels of its own colours: see Enemies.die
         # each tier of the chain plays the kill a step further up the scale
         self.sfx.play('kill', pitch=2 ** (T.CHAIN_SCALE[min(tier, len(T.CHAIN_SCALE) - 1)] / 12) * uniform(0.99, 1.01))
         self.juice.hitstop(min(T.HITSTOP_KILL + tier * T.HITSTOP_KILL_TIER, T.HITSTOP_KILL_MAX))

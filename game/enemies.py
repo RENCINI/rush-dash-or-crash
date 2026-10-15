@@ -8,7 +8,7 @@ from ursina import Entity, Vec3, time
 from data import tuning as T
 from game import mods
 from game.foes import astronauts, cave, crocodiles, snipers
-from game.foes.base import ALLY_HALOS, FIRE, FROST, VENOM, Shot, clone
+from game.foes.base import ALLY_HALOS, DEATH_TIME, FIRE, FROST, Shot, clone
 from ui.hud import glow_texture
 
 SHOT_POOL = 40
@@ -32,6 +32,7 @@ class Enemies(Entity):
         self.markers = []           # whatever is in the air; the game hands these out as its projectiles
         self.mix = None             # kind -> share of those alive, when a round says who comes
         self.status_timer = T.STATUS_TICK
+        self.corpses = []           # killed this moment: seen white for two frames, then gone
 
     # --- spawning ---
 
@@ -54,15 +55,17 @@ class Enemies(Entity):
             x, z = self.pick_spawn_point()
         elif x is None:
             x = z = 0.0     # it finds its own place: see its `spawn`
-        enemy = next((e for e in self.pool if not e.alive and e.ally is None and e.kind == kind
+        enemy = next((e for e in self.pool if not e.alive and e.ally is None and e.dead_time <= 0 and e.kind == kind
                       and e.green == green and e.gold == gold), None)
         if enemy is None:
             enemy = species(self.game, green, self.suit(kind, green, gold), gold)
             self.pool.append(enemy)
         enemy.spawn(x, z, special, hp_scale, size)
         self.alive.append(enemy)
-        if door:
-            self.game.particles.burst((x, 0.8, z), (1, 1, 1), count=14, speed=6, size=0.06, life=0.4, up=2)
+        if not enemy.hidden:
+            # it comes in in a puff of whatever the place is made of: steam, leaves or dust
+            self.game.pixels.scatter((enemy.x, enemy.y + 0.5, enemy.z), self.game.map.DUST, count=18, speed=4,
+                                     size=0.09, life=0.7, gravity=-0.5, up=1.5, spread=0.5)
         self.game.sfx.play('spawn', volume=0.35, pitch=uniform(0.9, 1.2))
         return enemy
 
@@ -73,6 +76,10 @@ class Enemies(Entity):
             return None
         enemy.make_boss(boss)
         enemy.x, enemy.z = x, z
+        # it rises out of a column of light and gold
+        for k in range(6):
+            self.game.pixels.scatter((x, enemy.y + k * 1.4, z), 'gold' if k % 2 else 'hurt', count=14, speed=3,
+                                     size=0.14, life=1.0, gravity=-3, up=4, spread=1.2)
         if hasattr(enemy, 'come_up'):
             enemy.come_up()         # a miner bursts out of the ground where the beacon was
         return enemy
@@ -154,12 +161,14 @@ class Enemies(Entity):
 
     def clear(self):
         """Empty the arena: enemies, allies and the pens in the air."""
-        for enemy in self.alive + self.allies:
+        for enemy in self.alive + self.allies + self.corpses:
             enemy.alive = False
             enemy.ally = None
+            enemy.dead_time = 0.0
             enemy.retire()
         self.alive.clear()
         self.allies.clear()
+        self.corpses.clear()
         for marker in self.markers:
             marker.finish()
         self.markers.clear()
@@ -185,6 +194,11 @@ class Enemies(Entity):
         if self.status_timer <= 0:
             self.status_timer += T.STATUS_TICK
             self.tick_status()
+        for corpse in list(self.corpses):
+            corpse.dead_time -= dt
+            if corpse.dead_time <= 0:
+                corpse.entity.enabled = False
+                self.corpses.remove(corpse)
         for marker in list(self.markers):
             # a pen that kills the player restarts the level, which has already cleared the list
             if not marker.update(dt, self.game) and marker in self.markers:
@@ -229,15 +243,11 @@ class Enemies(Entity):
             if not enemy.alive:     # caught in the blast of one that died earlier in this loop
                 continue
             amount = 0.0
-            for name, colour in (('burn', FIRE), ('poison', VENOM)):
+            for name in ('burn', 'poison'):
                 if getattr(enemy, name + '_time') <= 0:
                     continue
                 setattr(enemy, name + '_time', getattr(enemy, name + '_time') - T.STATUS_TICK)
-                amount += getattr(enemy, name) * T.STATUS_TICK
-                for _ in range(4):
-                    at = enemy.centre + Vec3(uniform(-0.4, 0.4), uniform(-0.6, 0.8), uniform(-0.4, 0.4))
-                    game.particles.emit(at, (0, uniform(1, 3), 0), colour, uniform(0.07, 0.14), uniform(0.3, 0.5),
-                                        gravity=-2)
+                amount += getattr(enemy, name) * T.STATUS_TICK      # what it looks like is the enemy's own (Enemy.update)
             if enemy.burn_time > 0 and mods.perk('POPPER', 'wildfire'):
                 for _, other in self.in_radius(enemy.centre, T.WILDFIRE_REACH):
                     if other.burn_time <= 0:
@@ -278,6 +288,27 @@ class Enemies(Entity):
                 found.append((max(d, 0.0), enemy))
         return found
 
+    def die(self, enemy):
+        """Killed: the body is seen two frames more, white and swollen, while it bursts into pixels
+        of what it is made of."""
+        if not enemy.hidden:
+            enemy.entity.enabled = True
+            enemy.dead_time = DEATH_TIME
+            enemy.paint()
+            enemy.entity.setScale(enemy.entity.getScale() * 1.15)
+            self.corpses.append(enemy)
+        big = enemy.size * (2.4 if enemy.boss is not None else 1.0)
+        main, accent = enemy.death_looks()
+        at = enemy.centre
+        pixels = self.game.pixels
+        pixels.scatter(at, main, count=int(30 * big), speed=7 * big ** 0.5, size=0.085 * big ** 0.5, life=0.9,
+                       gravity=16, up=4, spread=0.45 * big)
+        pixels.scatter(at, accent, count=int(14 * big), speed=9 * big ** 0.5, size=0.08 * big ** 0.5, life=0.7,
+                       gravity=12, up=5, spread=0.3 * big)
+        if enemy.boss is not None:
+            pixels.ring((enemy.x, enemy.y, enemy.z), 9.0, 'gold')
+            pixels.show(at, 5.0, 'rocket', shape=False)
+
     def damage(self, enemy, amount, push=None, flinch=True):
         """Returns True if this killed it. `flinch=False` is for damage that keeps coming."""
         if not enemy.alive or enemy.hidden:
@@ -297,6 +328,7 @@ class Enemies(Entity):
         enemy.alive = False
         enemy.retire()
         self.alive.remove(enemy)
+        self.die(enemy)
         game = self.game
         game.on_kill(enemy)
         centre = enemy.centre

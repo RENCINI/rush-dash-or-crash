@@ -58,11 +58,13 @@ void main() {
     }
     vec3 colour = pick(p);
     if (radial > 0.0) {
-        vec2 out_way = (p - 0.5) * radial * 0.025;
-        for (int i = 1; i < 6; i++) {
-            colour += pick(p - out_way * float(i));
+        // the smear takes plain samples: the colour split is in the first one already
+        vec2 out_way = (p - 0.5) * radial * 0.03;
+        vec3 smear = colour;
+        for (int i = 1; i < 4; i++) {
+            smear += texture(tex, p - out_way * float(i)).rgb;
         }
-        colour /= 6.0;
+        colour = smear / 4.0;
     }
     if (pause > 0.0) {
         vec3 soft = vec3(0.0);

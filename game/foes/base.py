@@ -12,10 +12,12 @@ one into an ally that fights or heals for the player for a while.
 from math import atan2, cos, degrees, pi, sin, sqrt
 from random import choice, uniform
 
+from panda3d.core import TransparencyAttrib
 from ursina import Entity, Mesh, Vec3, color, raycast
 
 from data import tuning as T
-from fx.toon import build, placed
+from fx.shaders import Look
+from fx.toon import barrel, box, build, burst_mesh, dashed_ring, halo_mesh, loft, placed
 from ui.font import Label
 
 OUTLINE = 0.03
@@ -23,7 +25,8 @@ MODEL_SCALE = 0.9
 BODY_RADIUS = 0.45          # kept clear of the wall and the pillars
 SPAWN_TIME = 0.35
 SWING_TIME = 0.2            # the arm stays out this long after a punch or a throw
-FLASH, DAZED = 3.0, 0.45    # brightness of a body that was just hit, or is stunned
+DEATH_TIME = 2 / 60         # a killed body stays two frames, white, before it bursts
+STAR_SPIN = 260             # degrees a second the stars round a stunned head go round
 
 GREY = color.hsv(220, 0.14, 0.5)
 GOLD = color.hsv(42, 0.75, 1)
@@ -33,26 +36,38 @@ GREEN = color.hsv(T.GREEN_HUE, 0.7, 0.95)
 NEON = color.hsv(T.GREEN_HUE, 0.85, 1)      # what a parryable enemy wears, whatever its own colour
 GOLD_SUIT = color.hsv(46, 0.72, 1)
 GOLD_TRIM = color.hsv(28, 0.85, 0.95)
-GLOW_HALO = color.hsv(185, 0.55, 1, 0.6)
-GOLD_HALO = color.hsv(46, 0.8, 1, 0.7)
+GLOW_HALO = color.hsv(185, 0.55, 1)
+GOLD_HALO = color.hsv(46, 0.8, 1)
+BOSS_HALO = color.hsv(345, 0.75, 1)
 SPARKLE_EVERY = 0.05
-# the colour a converted enemy is washed in, and its halo
-ALLY_TINTS = {'fighter': (0.62, 0.4, 1.0), 'healer': (1.0, 0.95, 0.5)}
-ALLY_HALOS = {'fighter': color.hsv(275, 0.7, 1, 0.6), 'healer': color.hsv(52, 0.6, 1, 0.7)}
+# the colour a converted enemy is washed in, and its halo: a healer is pink, not the gold of a golden one
+ALLY_TINTS = {'fighter': (0.62, 0.4, 1.0), 'healer': (1.0, 0.7, 0.86)}
+ALLY_HALOS = {'fighter': color.hsv(275, 0.7, 1), 'healer': color.hsv(330, 0.45, 1)}
 FROST = color.hsv(195, 0.45, 1)
 FIRE = (1, 0.55, 0.15, 1)
-VENOM = (0.5, 1, 0.3, 1)
+VENOM = (0.7, 0.36, 1, 1)                   # purple: green is kept for what can be parried
+# what the toon shader washes a body in (fx/shaders.py): rgb, then how strongly
+FIRE_TINT = (1.0, 0.5, 0.12)
+VENOM_TINT = (0.66, 0.3, 1.0)
+COLD_TINT = (0.6, 0.86, 1.0)
+ICE_TINT = (0.88, 0.97, 1.0)
+GLOW_TINT = (0.35, 0.95, 1.0)
+BOSS_TINT = (1.0, 0.3, 0.45)
+GOLD_TONE = (1.0, 0.76, 0.2)
+ICE = (0.72, 0.92, 1.0)
+STAR = color.Color(1.0, 0.9, 0.3, 1)
 
 
 def about_face(parts):
     return [(placed(shape, yaw=180), colour) for shape, colour in parts]
 
 
-def fused(parts, details=()):
+def fused(parts, details=(), outline=OUTLINE):
     """Outlined solids, plus small flat details that would drown in an outline of their own.
     Bodies are drawn facing +z but baked facing -z: shading is fixed in the mesh, and an enemy
-    always faces the player, so its front has to be the side the light falls on."""
-    mesh = build(about_face(parts), OUTLINE)
+    always faces the player, so its front has to be the side the light falls on. A small kind
+    passes a thicker `outline`, so that drawn small its rim still shows."""
+    mesh = build(about_face(parts), outline)
     if not details:
         return mesh
     flat = build(about_face(details), 0)
@@ -62,6 +77,36 @@ def fused(parts, details=()):
 def clone(mesh):
     """A mesh belongs to one entity, so every enemy gets its own copy."""
     return Mesh(vertices=mesh.vertices, colors=mesh.colors, mode='triangle', static=True)
+
+
+def overshoot(t):
+    """0 to 1, going a little past 1 and back: something popping into being."""
+    t = min(max(t, 0.0), 1.0) - 1
+    return 1 + 2.70158 * t ** 3 + 1.70158 * t ** 2
+
+
+def ice_model(height):
+    """A block of ice round a body `height` tall: a faceted crystal, wider at the middle."""
+    def ring(radius, y, sides=6):
+        return [(sin(2 * pi * (i + 0.5) / sides) * radius, y, cos(2 * pi * (i + 0.5) / sides) * radius)
+                for i in range(sides)]
+    return build([(loft([ring(0.58, 0.0), ring(0.72, height * 0.55), ring(0.52, height * 1.05),
+                         [(0.0, height * 1.2, 0.0)]]), ICE)], OUTLINE)
+
+
+def crown_model():
+    """A miniboss's crown: a gold band with five points and a red gem under each, standing on its head."""
+    ruby = color.hsv(350, 0.8, 0.95)
+    parts = [(placed(barrel(0.34, -0.09, 0.09, sides=10), pitch=-90), GOLD_SUIT)]
+    for i in range(5):
+        a = 2 * pi * i / 5
+        x, z = sin(a) * 0.3, cos(a) * 0.3
+        across, out = (cos(a), -sin(a)), (sin(a), cos(a))
+        foot = [(x + across[0] * u * 0.09 + out[0] * v * 0.05, 0.06, z + across[1] * u * 0.09 + out[1] * v * 0.05)
+                for u, v in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+        parts.append((loft([foot, [(x, 0.4, z)]]), GOLD_SUIT))
+        parts.append((box((0.08, 0.08, 0.08), (sin(a) * 0.35, -0.01, cos(a) * 0.35)), ruby))
+    return build(parts, OUTLINE)
 
 
 class Enemy:
@@ -93,16 +138,26 @@ class Enemy:
         self.alive = False
         self.special = None     # 'glow' or 'gold': what each drops is in Session.drop
         self.ally = None        # 'fighter' or 'healer' once a weapon has turned it
-        self.entity = Entity(model=clone(models['body']), enabled=False)
+        # nothing an enemy is made of updates itself (the manager moves it), so the engine skips it all
+        self.entity = Entity(model=clone(models['body']), enabled=False, ignore=True)
         # the meshes face -z (see `fused`), so the enemy's own left is +x
         self.arm_left = self.limb(models['arm_left'], self.SHOULDER[0], self.SHOULDER[1])
         self.arm_right = self.limb(models['arm_right'], -self.SHOULDER[0], self.SHOULDER[1])
         self.leg_left = self.limb(models['leg'], self.HIP[0], self.HIP[1])
         self.leg_right = self.limb(models['leg'], -self.HIP[0], self.HIP[1])
-        self.halo = Entity(parent=self.entity, model='quad', texture=game.enemies.halo_texture, billboard=True,
-                           y=self.CENTRE + 0.15, enabled=False, ignore=True)
+        middle = self.middle
+        # a glow in hard steps behind a special one, and a ring of dashes turning under its feet
+        self.halo = Entity(parent=self.entity, model=halo_mesh(), billboard=True, y=middle + 0.15, z=0.3,
+                           enabled=False, ignore=True)
+        self.halo.setTransparency(TransparencyAttrib.MAlpha)
         self.halo.setDepthWrite(False)
         self.halo.setBin('transparent', 5)
+        self.ring = Entity(parent=self.entity, model=dashed_ring(), double_sided=True, enabled=False, ignore=True,
+                           y=middle - self.HEIGHT / 2 + 0.06)
+        self.look = Look(self.entity)       # the toon shader's flash and tints, on the whole body
+        self.stars = None       # round its head while stunned, made the first time
+        self.shell = None       # the ice it stands frozen in, made the first time
+        self.crown = None       # a miniboss's, made the first time
         self.tag = None         # the words over an ally's head, made the first time it is turned
         self.size = 1.0
         self.hidden = False
@@ -111,8 +166,22 @@ class Enemy:
         self.might = 1.0        # times the damage its blows and throws do
         self.quick = 1.0        # times as fast as its kind thinks and acts
 
+    MIDDLE = None               # where the middle of the body is in its own meshes, if not CENTRE
+    DEATH = ('suit', 'hurt')    # the pixel looks it bursts into: its body, and a touch of its colour
+
+    @property
+    def middle(self):
+        return self.CENTRE if self.MIDDLE is None else self.MIDDLE
+
     def limb(self, mesh, x, y):
-        return Entity(parent=self.entity, model=clone(mesh), position=(x, y, 0))
+        return Entity(parent=self.entity, model=clone(mesh), position=(x, y, 0), ignore=True)
+
+    def death_looks(self):
+        if self.special == 'gold':
+            return 'gold', 'white'
+        if self.green:
+            return self.DEATH[0], 'neon'
+        return self.DEATH
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         self.alive = True
@@ -141,6 +210,9 @@ class Enemy:
         self.spawning = SPAWN_TIME
         self.flash = 0.0
         self.squash = 0.0
+        self.squash_speed = 0.0     # squash springs back past still and settles
+        self.dead_time = 0.0        # the moment a killed body is still seen, white
+        self.fx_timer = 0.0         # until the next pixel of fire or poison comes off it
         self.hit_cooldown = 0.0     # until the next blow or throw
         self.wind = 0.0             # counts down to the blow while the arm is drawn back
         self.swing = 0.0
@@ -149,13 +221,13 @@ class Enemy:
         self.stride = uniform(0, 6)
         self.rethink = 0.0
         self.heading = (0.0, 0.0)
-        self.tint = None
+        self.look.forget()
         self.entity.enabled = True
         if self.tag is not None:
             self.tag.enabled = False
-        self.halo.enabled = self.special is not None
-        if self.special:
-            self.halo.color = GOLD_HALO if self.gold else GLOW_HALO
+        if self.crown is not None:
+            self.crown.enabled = False
+        self.mark(GOLD_HALO if self.gold else GLOW_HALO if self.special else None)
 
     @property
     def centre(self):
@@ -180,12 +252,26 @@ class Enemy:
             self.stagger(T.FREEZE_TIME)
             self.game.popups.show(self.centre + Vec3(0, 1.2 * self.size, 0), 'FROZEN!', FROST, size=1.4)
 
+    def mark(self, tint, halo=True, ring=1.6):
+        """Show a special one by a halo behind it and a ring under it in `tint`, or neither (None)."""
+        self.halo.enabled = tint is not None and halo
+        self.ring.enabled = tint is not None
+        if tint is not None:
+            self.halo.color = tint
+            self.ring.color = tint
+            self.ring.scale = ring
+
     def make_boss(self, boss):
         """Turn this giant into a miniboss: `boss.hp` times the health its size gave it, as fast
-        as `boss.speed` times one of ordinary size, its blows and throws `boss.power` as hard."""
+        as `boss.speed` times one of ordinary size, its blows and throws `boss.power` as hard.
+        It wears a crown, and a wide red ring turns under it."""
         self.boss = boss
         self.special = None
-        self.halo.enabled = False
+        self.mark(BOSS_HALO, halo=False, ring=2.1)
+        if self.crown is None:
+            self.crown = Entity(parent=self.entity, model=crown_model(), y=self.middle + self.HEIGHT / 2 + 0.12,
+                                ignore=True)
+        self.crown.enabled = True
         self.pace = self.quick = boss.speed
         self.might = boss.power
         self.hp = self.max_hp = self.max_hp * boss.hp
@@ -207,9 +293,7 @@ class Enemy:
         self.hp = self.max_hp
         self.burn_time = self.poison_time = self.slow_time = 0.0
         self.pause = self.hit_cooldown = 0.0
-        self.tint = None
-        self.halo.color = ALLY_HALOS[role]
-        self.halo.enabled = True
+        self.mark(ALLY_HALOS[role])
 
     def release(self):
         """Let go of whatever is holding it up: from here on it is on foot like anyone else."""
@@ -236,7 +320,9 @@ class Enemy:
         self.stun -= dt
         self.swing -= dt
         self.age += dt
-        self.squash *= max(0.0, 1 - 12 * dt)
+        # a squash springs back, a little past still, and settles
+        self.squash_speed += (-T.SQUASH_SPRING * self.squash - T.SQUASH_DAMPING * self.squash_speed) * dt
+        self.squash += self.squash_speed * dt
 
         dx, dz = player.x - self.x, player.z - self.z
         distance = sqrt(dx * dx + dz * dz) or 0.001
@@ -294,6 +380,17 @@ class Enemy:
                 self.game.particles.emit((self.x + sin(a) * wide, self.y + h, self.z + cos(a) * wide),
                                          (0, uniform(0.5, 2), 0), choice(((1, 0.85, 0.3, 1), (1, 1, 1, 1))),
                                          uniform(0.04, 0.09), uniform(0.3, 0.6), gravity=0)
+        if (self.burn_time > 0 or self.poison_time > 0) and not self.hidden:
+            # fire licks up off it, poison bubbles off it, a pixel at a time
+            self.fx_timer -= dt
+            if self.fx_timer <= 0:
+                self.fx_timer = T.STATUS_PIXEL_EVERY
+                wide, tall = 0.45 * self.size, self.HEIGHT * self.size * MODEL_SCALE
+                at = (self.x + uniform(-wide, wide), self.y + uniform(0.2, 0.9) * tall, self.z + uniform(-wide, wide))
+                look = 'flame' if self.burn_time > 0 else 'poison'
+                self.game.pixels.emit(at, (uniform(-0.3, 0.3), uniform(1.5, 3.2), uniform(-0.3, 0.3)), look,
+                                      uniform(0.06, 0.11) * max(self.size, 0.7), uniform(0.4, 0.7),
+                                      0 if look == 'flame' else 2, 7, gravity=-1.5, drag=1.0)
         self.draw(nx, nz)
 
     def grip(self):
@@ -413,7 +510,7 @@ class Enemy:
 
     def draw(self, nx, nz):
         e = self.entity
-        grow = 1.0 if self.spawning <= 0 else max(0.05, 1 - self.spawning / SPAWN_TIME)
+        grow = 1.0 if self.spawning <= 0 else max(0.05, overshoot(1 - self.spawning / SPAWN_TIME))
         stretch = 1 + self.squash + (0 if self.grounded or self.aerial else max(-0.12, min(0.2, self.vy * 0.02)))
         wide = 1 / sqrt(max(stretch, 0.3))
         size = MODEL_SCALE * grow * self.size
@@ -438,31 +535,72 @@ class Enemy:
         self.arm_right.setP(self.arm_pose(swing))
 
     def paint(self):
-        if self.flash > 0:
-            tint = FLASH
-        elif self.stun > 0:
-            tint = DAZED
-        elif self.green:
-            tint = 0.85 + 0.3 * abs(sin(self.age * 7))     # green ones throb so they read as "parry me"
+        """The toon shader's inputs for this body (see fx/shaders.py), and what hangs about it."""
+        look = self.look
+        dying = self.dead_time > 0
+        # a hit: two frames of white, then a moment half white; coming in, it starts white too
+        if dying or self.flash > 0.035:
+            flash = 1.0
+        elif self.flash > 0:
+            flash = 0.55
+        elif self.spawning > SPAWN_TIME * 0.45:
+            flash = 0.7
         else:
-            tint = 1.0
-        r = g = b = tint
+            flash = 0.0
+        look.set('flash', flash)
+        frozen = self.iced and self.stun > 0
+        on = sin(self.age * 12) > 0         # tints step between two strengths, never glide
         if self.ally:
             wash = ALLY_TINTS[self.ally]
-            fading = 0.5 if self.ally_time < 3 and sin(self.age * 22) > 0 else 1.0     # blinks before it goes
-            r, g, b = tint * wash[0] * fading, tint * wash[1] * fading, tint * wash[2] * fading
-        elif self.special == 'gold':
-            r = g = b = tint * (0.9 + 0.25 * abs(sin(self.age * 6)))
+            status = (*wash, 0.2 if self.ally_time < 3 and sin(self.age * 22) > 0 else 0.5)    # blinks before it goes
+        elif frozen:
+            status = (*ICE_TINT, 0.8)
+        elif self.burn_time > 0:
+            status = (*FIRE_TINT, 0.72 if sin(self.age * 26) > 0 else 0.48)
+        elif self.poison_time > 0:
+            status = (*VENOM_TINT, 0.5 if on else 0.36)
+        elif self.slow_time > 0:
+            status = (*COLD_TINT, 0.55)
+        elif self.boss is not None:
+            status = (*BOSS_TINT, 0.16)
         elif self.special == 'glow':
-            r = tint * (0.55 + 0.45 * abs(sin(self.age * 5)))       # washes to cyan and back
-        if self.slow_time > 0:
-            r, g, b = r * 0.5, g * 0.8, b * 1.2         # blue with cold
+            status = (*GLOW_TINT, 0.55 if sin(self.age * 5) > 0 else 0.3)
+        else:
+            status = (0.0, 0.0, 0.0, 0.0)
+        look.set('status', *status)
+        gold = self.special == 'gold' and not self.ally
+        # gold under a tint would go muddy: with a fire, poison or cold on it, the tint shows instead
+        shine = (0.85 if sin(self.age * 6) > 0 else 0.7) if status[3] == 0 else 0.3
+        look.set('gold', *((*GOLD_TONE, shine) if gold else (0.0, 0.0, 0.0, 0.0)))
+        look.set('dull', 0.45 if self.stun > 0 and not frozen and not dying else 0.0)
+        # a green one's green parts flare, and only those: it says "parry me" without hiding anything
+        look.set('neon', 0.6 if self.green and not self.ally and sin(self.age * 7) > 0.2 else 0.0)
         if self.halo.enabled:
-            self.halo.scale = 3.3 + 0.5 * sin(self.age * 5)
-        if (r, g, b) != self.tint:
-            self.tint = (r, g, b)
-            self.entity.setColorScale(r, g, b, 1)       # on the node itself, so the limbs follow
+            self.halo.scale = 3.3 if sin(self.age * 5) > 0 else 3.0
+        if self.ring.enabled:
+            self.ring.setHpr(self.age * 70, -90, 0)
+        self.paint_stun(frozen)
 
+    def paint_stun(self, frozen):
+        """Stars round its head while it is stunned; ice round it while it is frozen."""
+        stunned = self.stun > 0 and not frozen and self.dead_time <= 0
+        if stunned and self.stars is None:
+            self.stars = Entity(parent=self.entity, y=self.middle + self.HEIGHT / 2 + 0.3, ignore=True)
+            for i in range(3):
+                Entity(parent=self.stars, model=burst_mesh(5, 0.45), billboard=True, double_sided=True, color=STAR,
+                       scale=0.16, position=(sin(i * 2.09) * 0.42, 0, cos(i * 2.09) * 0.42), ignore=True)
+        if self.stars is not None:
+            self.stars.enabled = stunned
+            if stunned:
+                self.stars.setH(self.age * STAR_SPIN)
+        if frozen and self.shell is None:
+            self.shell = Entity(parent=self.entity, model=ice_model(self.HEIGHT), y=self.middle - self.HEIGHT / 2,
+                                color=color.Color(1, 1, 1, 0.6), ignore=True)
+            self.shell.setTransparency(TransparencyAttrib.MAlpha)
+            self.shell.setDepthWrite(False)
+            self.shell.setBin('transparent', 4)
+        if self.shell is not None:
+            self.shell.enabled = frozen
 
 class Shot:
     """Something thrown. It is one of `game.projectiles`, so a green one can be parried by the
@@ -470,7 +608,8 @@ class Shot:
 
     def __init__(self, kind, mesh):
         self.kind = kind
-        self.entity = Entity(model=mesh, enabled=False)
+        self.entity = Entity(model=mesh, enabled=False, ignore=True)
+        self.look = Look(self.entity)
         self.live = False
 
     def launch(self, owner, position, velocity, ink, damage=T.MARKER_DAMAGE, gravity=T.MARKER_GRAVITY,
@@ -495,7 +634,9 @@ class Shot:
         self.life = T.MARKER_LIFE
         self.tumble = uniform(0, 360)
         self.entity.color = ink if tinted else color.white
-        self.entity.scale = scale
+        self.entity.scale = self.size = scale
+        self.age = 0.0
+        self.trail = 0.0
         self.entity.position = self.pos
         self.entity.enabled = True
 
@@ -555,6 +696,18 @@ class Shot:
         self.pos += step
         e = self.entity
         e.position = self.pos
+        self.age += dt
+        # a green one throbs and leaves a neon trail, so it is plain it can be sent back; one that
+        # was sent back trails sparks all the way home
+        if self.green or self.friendly:
+            beat = sin(self.age * 18) > 0
+            self.look.set('neon', 0.7 if beat and not self.friendly else 0.0)
+            e.scale = self.size * (1.15 if beat else 1.0)
+            self.trail -= dt
+            if self.trail <= 0:
+                self.trail = 0.03
+                game.pixels.emit(self.pos, (uniform(-0.5, 0.5), uniform(-0.2, 0.6), uniform(-0.5, 0.5)),
+                                 'spark' if self.friendly else 'neon', 0.07 * self.size, 0.35, 1, 5, drag=2.0)
         e.rotation_y = degrees(atan2(self.vel.x, self.vel.z))
         if self.friendly or not self.spin:
             e.rotation_x = -degrees(atan2(self.vel.y, sqrt(self.vel.x ** 2 + self.vel.z ** 2)))    # nose first
@@ -565,6 +718,9 @@ class Shot:
 
     def splat(self, game, point, size=0.11):
         game.particles.burst(point, self.ink, count=22, speed=7, size=size, life=0.7, up=2.5, white=0)
+        if size > 0.05:     # not in the player's face
+            game.pixels.scatter(point, 'neon' if self.green else 'white', count=10, speed=4, size=0.06, life=0.4,
+                                gravity=10, up=2)
         away = (game.player.centre - point).length()
         game.sfx.play(self.sound, volume=max(0.15, min(1.0, 1.2 - away / 40)), pitch=uniform(0.85, 1.15))
         return self.finish()

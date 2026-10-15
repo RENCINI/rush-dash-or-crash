@@ -377,6 +377,8 @@ BRANCH_COST = 40            # chips to unlock a branch, on top of one key from a
 OLD_NODE_COSTS = (10, 15, 20, 25, 30)   # what a level cost before the trees: refunded from old saves
 
 # --- burning, poison and converted astronauts ---
+STATUS_PIXEL_EVERY = 0.05   # a burning or poisoned enemy sheds a pixel this often
+SQUASH_SPRING, SQUASH_DAMPING = 320.0, 15.0     # how a squashed body springs back
 STATUS_TICK = 0.5           # how often burn and poison deal their damage
 CLOUD_REFRESH = 0.25        # how often a poison cloud re-poisons what stands in it
 POISON_LINGER = 1.0         # poison lasts this long after leaving the cloud

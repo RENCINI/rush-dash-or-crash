@@ -1996,7 +1996,7 @@ for _ in range(60):
     app.step()
     if enemies.markers:
         break
-thrown = [m.kind for m in enemies.markers]
+thrown = [m.kind.split('_')[0] for m in enemies.markers]     # a green one's are pale, a golden one's gold
 run(2.0)
 blown = p.hp
 place(home)                         # the blast threw the player: back to the same spot, standing
@@ -2159,7 +2159,7 @@ down_again = False
 for _ in range(int((T.MINER_SURFACE[1] + T.MINER_DIG + 1.5) * 60)):
     app.step()
     place(home)
-    attacks |= {m.kind for m in enemies.markers}
+    attacks |= {m.kind.split('_')[0] for m in enemies.markers}     # pale or gold, a pick is a pick
     down_again = down_again or miner.hidden
 check('a miner tunnels unseen, comes up out of a hole near the player, throws, and digs down again',
       below == (True, False, False, True, 0) and waited < 900 and came_up[0] < T.MINER_RANGE[1] + 2 and came_up[1]
@@ -2531,6 +2531,37 @@ check('kills climb the chain: each pops a note higher, the badge slams, music jo
 check('a hit knocks the chain down two tiers; letting it lapse loses it and the badge goes',
       after_hit == 3 and chain.tier == 0 and not s.hud.score.badge.enabled,
       f'after a hit at x5: x{after_hit}; after {T.CHAIN_WINDOW} s: x{chain.tier}, badge={s.hud.score.badge.enabled}')
+
+clear_enemies()
+place(polar(26, 200), yaw=290)
+target = frozen(20, 3)
+target.hp = 1e6
+enemies.damage(target, 1)
+run(1 / 60)
+flashed = target.look.shown.get('flash')
+run(0.3)
+settled = target.look.shown.get('flash')
+tints = {}
+for name, how in (('burn', lambda e: e.ignite(1, 1)), ('poison', lambda e: e.envenom(1, 1)),
+                  ('cold', lambda e: e.chill(0.3, 1)), ('stun', lambda e: e.stagger(1))):
+    how(target)
+    run(0.1)
+    tints[name] = (round(target.look.shown['status'][3], 2) > 0 or target.look.shown['dull'][0] > 0,
+                   target.stars is not None and target.stars.enabled)
+    run(1.6)
+cleared = target.look.shown['status'] == (0.0, 0.0, 0.0, 0.0) and target.look.shown['dull'] == (0.0,)
+pixels_before = int((s.pixels.age < s.pixels.life).sum())
+enemies.damage(target, 1e9)
+dying = (target in enemies.corpses, target.entity.enabled, target.look.shown.get('flash'))
+pixels_after = int((s.pixels.age < s.pixels.life).sum())
+run(0.1)
+gone = target not in enemies.corpses and not target.entity.enabled
+green_mini = enemies.shot_mesh('mini_green').colors[0][:3] != enemies.shot_mesh('mini').colors[0][:3]
+check('a hit flashes the body white inside its ink; fire, poison, cold and a stun each show; a kill pops white and bursts',
+      flashed == (1.0,) and settled == (0.0,) and all(shown for shown, _ in tints.values()) and tints['stun'][1]
+      and cleared and dying == (True, True, (1.0,)) and pixels_after - pixels_before >= 30 and gone and green_mini,
+      f'flash {flashed}->{settled} statuses (shown, stars)={tints} cleared={cleared} dying={dying} '
+      f'pixels +{pixels_after - pixels_before} gone after={gone} pale green mini={green_mini}')
 
 effects_file = Path(scratch.name) / 'effects.json'
 saved_effects = Settings(effects_file)

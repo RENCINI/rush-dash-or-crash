@@ -15,13 +15,15 @@ from panda3d.core import NodePath
 from ursina import Entity, Vec3, color
 
 from data import tuning as T
-from fx.toon import barrel, box, build, placed
+from fx.toon import OUTLINE as INK, barrel, box, build, flat_bands, placed
 from game.foes.base import GOLD_SUIT, GOLD_TRIM, GREY, MODEL_SCALE, NEON, OUTLINE, SWING_TIME, Enemy, clone, fused, lob
 
-FUR = color.hsv(275, 0.35, 0.46)
-FUR_PALE = color.hsv(280, 0.2, 0.74)
-STONE = color.hsv(255, 0.2, 0.5)
-STONE_DARK = color.hsv(260, 0.28, 0.34)
+FUR = color.hsv(285, 0.42, 0.64)          # bright enough to stand off the cave's dark rock
+FUR_PALE = color.hsv(290, 0.18, 0.88)
+STONE = color.hsv(250, 0.16, 0.66)
+STONE_DARK = color.hsv(256, 0.24, 0.48)
+PALE = color.hsv(0, 0, 0.96)                # what a green one throws is built pale, to be tinted neon
+PALE_SHADE = color.hsv(0, 0, 0.78)
 MAGENTA = color.hsv(305, 0.55, 1)
 CYAN = color.hsv(185, 0.55, 1)
 AMBER = color.hsv(45, 0.6, 1)
@@ -61,20 +63,29 @@ def shard_model():
     return build([(gem(0.16, -0.5, 0.6), color.white)], OUTLINE)
 
 
-def rock_model():
-    return build([(box((0.5, 0.42, 0.46)), STONE), (box((0.3, 0.3, 0.56), (0.06, 0.08, 0)), STONE_DARK)], OUTLINE)
+def rock_model(stone=STONE, dark=STONE_DARK):
+    return build([(box((0.5, 0.42, 0.46)), stone), (box((0.3, 0.3, 0.56), (0.06, 0.08, 0)), dark)], OUTLINE)
 
 
-def pick_parts(metal=IRON):
+def pick_parts(metal=IRON, wood=WOOD):
     """A pickaxe lying along z, its head at the far end."""
-    return [(barrel(0.05, -0.55, 0.5, sides=6), WOOD),
+    return [(barrel(0.05, -0.55, 0.5, sides=6), wood),
             (box((0.9, 0.12, 0.14), (0, 0, 0.5)), metal),
             (box((0.2, 0.1, 0.12), (-0.52, -0.05, 0.5)), metal),
             (box((0.2, 0.1, 0.12), (0.52, -0.05, 0.5)), metal)]
 
 
-def pick_model():
-    return build(pick_parts(), OUTLINE)
+def pick_model(metal=IRON, wood=WOOD):
+    return build(pick_parts(metal, wood), OUTLINE)
+
+
+def hole_mesh(steps=18):
+    """The hole a miner leaves in the floor, from above: a black pit in a lip of turned earth."""
+    def rim(radius):
+        return [(sin(2 * pi * i / steps) * radius * (1 + 0.07 * sin(6 * pi * i / steps)),
+                 cos(2 * pi * i / steps) * radius * (1 + 0.05 * cos(10 * pi * i / steps)), 0) for i in range(steps)]
+    return flat_bands([rim(0.31), rim(0.37), rim(0.47), rim(0.51)],
+                      [(0.05, 0.03, 0.08, 1), (0.34, 0.26, 0.2, 1), (0.54, 0.43, 0.33, 1), (*INK, 1)])
 
 
 # --- crystal monkey ---
@@ -118,6 +129,7 @@ class Monkey(Enemy):
     kind = 'monkey'
     stripe = MAGENTA
     SCALE = T.MONKEY_SCALE
+    DEATH = ('legion', 'crystal')
     HP = T.MONKEY_HP
     SHOULDER = (0.47, 1.42)
     HIP = (0.18, 0.72)
@@ -391,9 +403,10 @@ def golem_models(green, gold):
     for i, (lean, yaw, lift, length) in enumerate(spikes):
         solids.append((upright(gem(0.2, 0.15, 0.3 + length), (0, lift * 0.2, 0), lean=lean, yaw=yaw), hues[i % len(hues)]))
     details = [(box((0.12, 0.1, 0.03), (side * 0.13, 0.1, 0.49)), color.white) for side in (-1, 1)]
-    stub = fused([(box((0.22, 0.4, 0.24), (0, -0.2, 0)), STONE), (gem(0.1, 0, 0.3), hues[0])])
-    foot = fused([(box((0.26, 0.3, 0.36), (0, -0.15, 0.04)), STONE)])
-    return {'body': fused(solids, details), 'arm_left': stub, 'arm_right': stub, 'leg': foot}
+    outline = OUTLINE / T.GOLEM_SCALE ** 0.6        # small: a thicker rim, to keep it outlined at a distance
+    stub = fused([(box((0.22, 0.4, 0.24), (0, -0.2, 0)), STONE), (gem(0.1, 0, 0.3), hues[0])], (), outline)
+    foot = fused([(box((0.26, 0.3, 0.36), (0, -0.15, 0.04)), STONE)], (), outline)
+    return {'body': fused(solids, details, outline), 'arm_left': stub, 'arm_right': stub, 'leg': foot}
 
 
 class Golem(Enemy):
@@ -402,6 +415,8 @@ class Golem(Enemy):
     SCALE = T.GOLEM_SCALE
     HEIGHT = 1.5
     CENTRE = 0.75
+    MIDDLE = 0.0                # its meshes are built round their middle, so that it can roll
+    DEATH = ('stone', 'crystal')
     RADIUS = 1.2
     SHOULDER = (0.55, 0.05)
     HIP = (0.24, -0.45)
@@ -412,7 +427,6 @@ class Golem(Enemy):
 
     def __init__(self, game, green, models, gold=False):
         super().__init__(game, green, models, gold)
-        self.halo.y = 0.0
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         super().spawn(x, z, special, hp_scale, size)
@@ -525,6 +539,7 @@ class Miner(Enemy):
     kind = 'miner'
     stripe = HAT
     DOOR = False
+    DEATH = ('dirt', 'gold')
 
     @classmethod
     def models(cls, green, gold):
@@ -534,7 +549,7 @@ class Miner(Enemy):
         super().__init__(game, green, models, gold)
         # the pick in its glove, head upward
         self.pick = Entity(parent=self.arm_right, model=clone(models['pick']), position=(0, -0.45, -0.2))
-        self.hole = Entity(model='circle', color=color.Color(0.05, 0.03, 0.08, 1), rotation_x=90, enabled=False)
+        self.hole = Entity(model=hole_mesh(), rotation_x=90, double_sided=True, enabled=False, ignore=True)
         self.hole_time = 0.0
         self.mode = 'tunnel'
 
@@ -667,8 +682,11 @@ class Miner(Enemy):
         flight = max((player.centre - hand).length() / speed, 0.3)
         target = player.centre + Vec3(player.vel.x, 0, player.vel.z) * (flight * T.MARKER_LEAD)
         tint = NEON if self.green else {'pick': IRON, 'rock': STONE, 'crystal': choice((CYAN, MAGENTA, AMBER))}[what]
+        # a green one throws pale things washed neon; a golden one throws its gold pick
+        kind = 'shard' if what == 'crystal' else what + ('_pale' if self.green else '_gold' if self.gold and what == 'pick'
+                                                          else '')
         self.game.enemies.throw(self, hand, lob(hand, target, speed, gravity), tint,
-                                kind='shard' if what == 'crystal' else what, damage=damage, gravity=gravity,
+                                kind=kind, damage=damage, gravity=gravity,
                                 scale=1.6 if what == 'crystal' else 1.0, tinted=self.green or what == 'crystal',
                                 sound='chime' if what == 'crystal' else 'splat')
         if what == 'pick':
@@ -717,4 +735,6 @@ class Miner(Enemy):
 
 
 KINDS = (Monkey, Golem, Miner)
-SHOTS = {'shard': shard_model, 'rock': rock_model, 'pick': pick_model}
+SHOTS = {'shard': shard_model, 'rock': rock_model, 'pick': pick_model,
+         'rock_pale': lambda: rock_model(PALE, PALE_SHADE), 'pick_pale': lambda: pick_model(PALE, PALE_SHADE),
+         'pick_gold': lambda: pick_model(GOLD_SUIT, GOLD_TRIM)}

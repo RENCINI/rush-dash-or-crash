@@ -79,6 +79,7 @@ class Jungle(Arena):
     title = 'THE JUNGLE'
     radius = RADIUS
     sky = SKY
+    DUST = 'leaf'
     spawn_position = polar(ARCH_RADIUS, 0)
     spawn_yaw = 90
 

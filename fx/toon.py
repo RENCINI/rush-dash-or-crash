@@ -267,6 +267,32 @@ def burst_mesh(points=7, inner=0.42, rim=1.25):
     return flat_bands([shape, [(x * rim, y * rim, 0) for x, y, _ in shape]], [(1, 1, 1, 1), (*OUTLINE, 1)])
 
 
+def dashed_ring(segments=10, fill=0.62, thickness=0.18, rim=0.05, steps=4):
+    """A ring of radius 1 broken into dashes, each a white band inside a dark rim, flat in xy.
+    Spun about its middle it reads as turning; tinted, as anyone's colour."""
+    vertices, colours = [], []
+    radii = (1 - thickness - rim, 1 - thickness, 1, 1 + rim)
+    tints = ((*OUTLINE, 1), (1, 1, 1, 1), (*OUTLINE, 1))
+    span = 2 * pi / segments
+    for k in range(segments):
+        a0 = k * span
+        angles = [a0 + span * fill * i / steps for i in range(steps + 1)]
+        for a, b in zip(angles, angles[1:]):
+            for (r0, r1), tint in zip(zip(radii, radii[1:]), tints):
+                p = [(sin(a) * r0, cos(a) * r0, 0), (sin(a) * r1, cos(a) * r1, 0),
+                     (sin(b) * r1, cos(b) * r1, 0), (sin(b) * r0, cos(b) * r0, 0)]
+                vertices += [p[0], p[1], p[2], p[0], p[2], p[3]]
+                colours += [tint] * 6
+    return Mesh(vertices=vertices, colors=colours, mode='triangle', static=True)
+
+
+def halo_mesh(steps=24):
+    """A glow in hard steps: three discs, each fainter than the one inside it, white to be tinted."""
+    def circle(radius):
+        return [(sin(2 * pi * i / steps) * radius, cos(2 * pi * i / steps) * radius, 0) for i in range(steps)]
+    return flat_bands([circle(0.22), circle(0.36), circle(0.5)], [(1, 1, 1, 0.42), (1, 1, 1, 0.26), (1, 1, 1, 0.12)])
+
+
 def ring_mesh(steps=28, thickness=0.2, rim=0.05):
     """Outlined shock ring of radius 1: a white band between two dark lines, hollow inside."""
     def circle(radius):

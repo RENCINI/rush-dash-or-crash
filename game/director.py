@@ -115,17 +115,20 @@ class Director(Entity):
         greens = [i < round(total * plan.green) for i in range(total)]
         shuffle(kinds)
         shuffle(greens)
-        specials = [None] * total
-        marked = sample(range(total), min(total, plan.glowing + plan.golden))
-        for n, i in enumerate(marked):
-            specials[i] = 'gold' if n < plan.golden else 'glow'
-        self.queue = list(zip(kinds, greens, specials))
         # marksmen come besides; from the second lap every round after a level's first has one more
         snipers = plan.snipers + (T.REPLAY_SNIPERS * extra if self.round else 0)
         elites = plan.elites + (extra if self.round == len(self.rounds) - 1 else 0)
-        if snipers or elites:
-            self.queue += [('sniper', False, None)] * snipers + [('elite', False, None)] * elites
-            shuffle(self.queue)
+        kinds += ['sniper'] * snipers + ['elite'] * elites
+        greens += [False] * (snipers + elites)
+        # the glowing and golden marks fall on anyone, a marksman too: the golden version of every
+        # kind can turn up, and there are no more of them than the level says
+        count = len(kinds)
+        specials = [None] * count
+        marked = sample(range(count), min(count, plan.glowing + plan.golden))
+        for n, i in enumerate(marked):
+            specials[i] = 'gold' if n < plan.golden else 'glow'
+        self.queue = list(zip(kinds, greens, specials))
+        shuffle(self.queue)
         self.total = len(self.queue)
         self.heart_sent = False     # the runaway heart gets out once a round
         self.game.chain.new_round()

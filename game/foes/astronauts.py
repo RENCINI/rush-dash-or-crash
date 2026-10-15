@@ -22,10 +22,16 @@ PACK = color.hsv(215, 0.1, 0.8)
 INK_HUES = (0, 28, 215, 285, 325)       # green ink is kept for the pens that can be parried
 
 
-def suit_models(stripe, visor, SUIT=SUIT):
+def suit_models(stripe, visor, SUIT=SUIT, gloves=False, quiver=False):
     """The pieces of one astronaut, standing at the origin and facing +z. Limbs hang from their pivots.
-    `SUIT` repaints the cloth: the golden ones wear gold."""
-    body = fused([
+    `SUIT` repaints the cloth: the golden ones wear gold. A brawler wears big boxing `gloves`; a
+    thrower carries a `quiver` of pens on its back, so the two are told apart a long way off."""
+    pens = []
+    if quiver:
+        pens = [(box((0.5, 0.42, 0.24), (0, 1.32, -0.6)), stripe)]          # the quiver, on the pack
+        caps = ((-0.15, color.hsv(330, 0.6, 1)), (0.0, color.hsv(28, 0.7, 1)), (0.15, color.hsv(275, 0.55, 1)))
+        pens += [(box((0.13, 0.5, 0.13), (x, 1.7, -0.6)), tint) for x, tint in caps]
+    body = fused(pens + [
         (box((0.8, 0.75, 0.5), (0, 1.15, 0)), SUIT),                # torso
         (box((0.84, 0.12, 0.54), (0, 0.84, 0)), stripe),            # belt
         (box((0.66, 0.9, 0.3), (0, 1.27, -0.38)), PACK),            # life-support pack
@@ -41,7 +47,8 @@ def suit_models(stripe, visor, SUIT=SUIT):
     arm = [
         (box((0.24, 0.62, 0.26), (0, -0.25, 0)), SUIT),
         (box((0.26, 0.1, 0.28), (0, -0.3, 0)), stripe),
-        (box((0.27, 0.2, 0.29), (0, -0.64, 0)), GREY),              # glove
+        (box((0.4, 0.34, 0.42), (0, -0.7, 0.03)) if gloves else box((0.27, 0.2, 0.29), (0, -0.64, 0)),
+         stripe if gloves else GREY),                               # glove
     ]
     # the flag on the left shoulder, seen from that side: canton toward the front
     flag = [
@@ -77,11 +84,13 @@ def marker_model():
 
 
 class Astronaut(Enemy):
+    GLOVES = QUIVER = False
+
     @classmethod
     def models(cls, green, gold):
         if gold:
-            return suit_models(GOLD_TRIM, color.white, GOLD_SUIT)
-        return suit_models(GREEN if green else cls.stripe, GREEN if green else GOLD)
+            return suit_models(GOLD_TRIM, color.white, GOLD_SUIT, cls.GLOVES, cls.QUIVER)
+        return suit_models(GREEN if green else cls.stripe, GREEN if green else GOLD, SUIT, cls.GLOVES, cls.QUIVER)
 
 
 class Brawler(Astronaut):
@@ -90,6 +99,7 @@ class Brawler(Astronaut):
     kind = 'brawler'
     stripe = RED
     leaping = False
+    GLOVES = True
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         super().spawn(x, z, special, hp_scale, size)
@@ -153,6 +163,8 @@ class Thrower(Astronaut):
 
     kind = 'thrower'
     stripe = BLUE
+    QUIVER = True
+    DEATH = ('suit', 'ink')
 
     def __init__(self, game, green, models, gold=False):
         super().__init__(game, green, models, gold)

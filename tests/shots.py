@@ -128,7 +128,8 @@ def enemies_group():
             elif status == 'slow':
                 enemy.chill(0.4, 30)
             elif status == 'freeze':
-                enemy.chill(0.4, 30, freeze=True)
+                enemy.chill(0.4, 30)
+                enemy.chill(0.4, 30, freeze=True)       # a second chill freezes it
             elif status == 'stun':
                 enemy.stagger(30)
             else:

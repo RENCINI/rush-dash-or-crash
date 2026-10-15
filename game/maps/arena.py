@@ -135,6 +135,7 @@ class Arena(Entity):
     radius = 60                 # of the floor, out to the wall
     wall_segments = 48
     sky = color.hsv(250, 0.6, 0.07)     # what is seen where nothing is drawn
+    DUST = 'steam'              # the pixel look of the puff an enemy comes in with (fx/pixels.py)
     spawn_position = Vec3(0, 0, 26)
     spawn_yaw = 90
     gate_half_width = 7

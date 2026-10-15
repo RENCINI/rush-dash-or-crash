@@ -1,12 +1,13 @@
 """Crocodiles that walk upright: the jungle's answer to astronauts.
 
-The dark green ones are the size of a person and bite like one punches, but from a way off they
-crouch and then dash straight through where the player was standing. The light green ones are
-small and quick and come on in a string of leaps, biting wherever they land. The red ones keep
+The swamp-blue ones are the size of a person and bite like one punches, but from a way off they
+crouch and then dash straight through where the player was standing. The ochre ones are small
+and quick and come on in a string of leaps, biting wherever they land. The red ones keep
 their distance, leaping about the clearing and throwing mini crocodiles: one that hits bites and
 blows up, and one that misses gets to its feet and runs the player down to blow up beside them.
 
 A parryable one wears a neon green bandana and has neon claws; a golden one wears a golden helmet.
+None of them is green themselves: in the green jungle, green is kept for what can be parried.
 """
 from math import cos, pi, sin, sqrt
 from random import choice, uniform
@@ -17,10 +18,12 @@ from data import tuning as T
 from fx.toon import barrel, box, build
 from game.foes.base import GOLD_SUIT, GOLD_TRIM, NEON, OUTLINE, SWING_TIME, Enemy, fused, lob
 
-DARK_GREEN = color.hsv(140, 0.6, 0.42)
-DARK_SHADE = color.hsv(145, 0.6, 0.3)
-LIGHT_GREEN = color.hsv(92, 0.62, 0.82)
-LIGHT_SHADE = color.hsv(104, 0.6, 0.62)
+SWAMP = color.hsv(196, 0.62, 0.62)
+SWAMP_SHADE = color.hsv(206, 0.66, 0.42)
+OCHRE = color.hsv(32, 0.66, 0.9)
+OCHRE_SHADE = color.hsv(22, 0.72, 0.66)
+PALE = color.hsv(0, 0, 0.96)                # a green one's thrown mini is built pale, to be tinted neon
+PALE_SHADE = color.hsv(0, 0, 0.74)
 RED = color.hsv(2, 0.72, 0.88)
 RED_SHADE = color.hsv(355, 0.75, 0.62)
 BELLY = color.hsv(52, 0.3, 0.95)
@@ -63,39 +66,41 @@ def croc_parts(skin, shade, green, gold):
     return solids, details, claw
 
 
-def croc_models(skin, shade, green, gold):
+def croc_models(skin, shade, green, gold, outline=OUTLINE):
     solids, details, claw = croc_parts(skin, shade, green, gold)
     arm = fused([
         (box((0.22, 0.56, 0.24), (0, -0.22, 0)), skin),
         (box((0.24, 0.16, 0.3), (0, -0.56, 0.02)), shade),                      # hand
-    ], [(box((0.05, 0.12, 0.05), (x, -0.68, 0.14)), claw) for x in (-0.08, 0, 0.08)])
+    ], [(box((0.05, 0.12, 0.05), (x, -0.68, 0.14)), claw) for x in (-0.08, 0, 0.08)], outline)
     leg = fused([
         (box((0.32, 0.5, 0.36), (0, -0.25, 0)), skin),
         (box((0.36, 0.26, 0.56), (0, -0.67, 0.08)), shade),                     # foot
-    ], [(box((0.07, 0.1, 0.08), (x, -0.74, 0.38)), claw) for x in (-0.11, 0, 0.11)])
-    return {'body': fused(solids, details), 'arm_left': arm, 'arm_right': arm, 'leg': leg}
+    ], [(box((0.07, 0.1, 0.08), (x, -0.74, 0.38)), claw) for x in (-0.11, 0, 0.11)], outline)
+    return {'body': fused(solids, details, outline), 'arm_left': arm, 'arm_right': arm, 'leg': leg}
 
 
-def mini_model():
+def mini_model(skin=RED, shade=RED_SHADE):
     """A mini crocodile in the air, curled up with its jaws open: nose toward +z."""
-    solids, details, claw = croc_parts(RED, RED_SHADE, False, False)
-    limbs = [(box((0.24, 0.3, 0.5), (side * 0.48, y, 0.2)), RED_SHADE) for side in (-1, 1) for y in (0.9, 1.4)]
+    solids, details, claw = croc_parts(skin, shade, False, False)
+    limbs = [(box((0.24, 0.3, 0.5), (side * 0.48, y, 0.2)), shade) for side in (-1, 1) for y in (0.9, 1.4)]
     # built round its own middle, so it tumbles about that
     return build([([(corners - (0, 1.2, 0), normal) for corners, normal in shape], tint)
                   for shape, tint in solids + limbs], OUTLINE)
 
 
 class Croc(Enemy):
-    """Dark green: bites up close, and dashes from further off."""
+    """Swamp blue: bites up close, and dashes from further off."""
 
     kind = 'croc'
-    stripe = DARK_GREEN
-    SKIN = (DARK_GREEN, DARK_SHADE)
+    stripe = SWAMP
+    SKIN = (SWAMP, SWAMP_SHADE)
     SHOULDER = (0.5, 1.42)
+    DEATH = ('swamp', 'white')
+    OUTLINE = OUTLINE
 
     @classmethod
     def models(cls, green, gold):
-        return croc_models(*cls.SKIN, green, gold)
+        return croc_models(*cls.SKIN, green, gold, cls.OUTLINE)
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         super().spawn(x, z, special, hp_scale, size)
@@ -201,12 +206,14 @@ class Croc(Enemy):
 
 
 class Snapper(Croc):
-    """Light green: small, and never still. It comes on in leaps and bites where it lands."""
+    """Ochre: small, and never still. It comes on in leaps and bites where it lands."""
 
     kind = 'snapper'
-    stripe = LIGHT_GREEN
-    SKIN = (LIGHT_GREEN, LIGHT_SHADE)
+    stripe = OCHRE
+    SKIN = (OCHRE, OCHRE_SHADE)
     SCALE = T.SNAPPER_SCALE
+    DEATH = ('ochre', 'white')
+    OUTLINE = OUTLINE / T.SNAPPER_SCALE ** 0.6
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         super().spawn(x, z, special, hp_scale, size)
@@ -258,6 +265,7 @@ class Lobber(Croc):
     kind = 'lobber'
     stripe = RED
     SKIN = (RED, RED_SHADE)
+    DEATH = ('hurt', 'white')
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         super().spawn(x, z, special, hp_scale, size)
@@ -301,14 +309,15 @@ class Lobber(Croc):
         flight = max((player.centre - hand).length() / T.MINI_SPEED, 0.3)
         target = player.centre + Vec3(player.vel.x, 0, player.vel.z) * (flight * T.MARKER_LEAD)
         game.enemies.throw(self, hand, lob(hand, target, T.MINI_SPEED, T.MINI_GRAVITY), NEON if self.green else RED,
-                           kind='mini', damage=T.MINI_BITE + T.MINI_BLAST, gravity=T.MINI_GRAVITY, spin=540,
-                           scale=T.MINI_SCALE, tinted=self.green, sound='snap', on_hit=self.mini_hit,
+                           kind='mini_green' if self.green else 'mini', damage=T.MINI_BITE + T.MINI_BLAST,
+                           gravity=T.MINI_GRAVITY, spin=540, scale=T.MINI_SCALE, tinted=self.green, sound='snap',
+                           on_hit=self.mini_hit,
                            on_land=self.mini_land)
 
     def mini_hit(self, shot, point):
         """It got its teeth in: the bite and the blast were one hit, and here is the bang."""
         self.game.explode(point, T.MINI_BLAST_RADIUS, T.MINI_ENEMY_DAMAGE, RED, player_knock=10.0, quiet=True)
-        self.game.blasts.show(point, T.MINI_BLAST_RADIUS, RED, life=0.3)
+        self.game.pixels.show(point, T.MINI_BLAST_RADIUS, 'rocket', shape=False)
         self.game.sfx.play('explode', volume=0.7, pitch=1.5)
 
     def mini_land(self, shot, point):
@@ -340,6 +349,8 @@ class Mini(Snapper):
     SKIN = (RED, RED_SHADE)
     SCALE = T.MINI_SCALE
     DROPS = False
+    DEATH = ('hurt', 'spark')
+    OUTLINE = OUTLINE / T.MINI_SCALE ** 0.6
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
         super().spawn(x, z, None, hp_scale, size)
@@ -369,9 +380,9 @@ class Mini(Snapper):
         centre = self.centre
         game.explode(centre, T.MINI_BLAST_RADIUS, T.MINI_ENEMY_DAMAGE, RED, player_knock=10.0, quiet=True,
                      self_damage=T.MINI_BLAST_DAMAGE)
-        game.blasts.show(centre, T.MINI_BLAST_RADIUS, RED, life=0.3)
+        game.pixels.show(centre, T.MINI_BLAST_RADIUS, 'rocket', shape=False)
         game.sfx.play('explode', volume=0.7, pitch=1.5)
 
 
 KINDS = (Croc, Snapper, Lobber, Mini)
-SHOTS = {'mini': mini_model}
+SHOTS = {'mini': mini_model, 'mini_green': lambda: mini_model(PALE, PALE_SHADE)}

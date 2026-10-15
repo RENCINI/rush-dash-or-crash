@@ -51,7 +51,7 @@ def lozenge(w, h, cut):
 
 class ScoreHud(Entity):
     def __init__(self, hud):
-        super().__init__(parent=hud)
+        super().__init__(parent=hud, ignore=True)     # the HUD ticks it; the engine need not look at any of it
         self.hud = hud
         self.game = hud.game
         self.clock = 0.0

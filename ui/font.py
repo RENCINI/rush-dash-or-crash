@@ -257,6 +257,9 @@ class Label(Entity):
         size = scale if isinstance(scale, (int, float)) else scale[1]
         self._style = style or ('block' if size >= BLOCK_FROM else 'flat')
         self.letters = letters
+        # words never update themselves, so the engine is told to skip them each frame: with a few
+        # hundred on the HUD and the menus, checking them all costs more than drawing them
+        kwargs.setdefault('ignore', True)
         super().__init__(parent=parent, **kwargs)
         self._origin = tuple(origin)
         self._ready = True
@@ -327,7 +330,7 @@ class Label(Entity):
         self.extent = (width, height)
         shown = [(char, x, y) for char, x, y in placed if char != ' ']
         while len(self.glyphs) < len(shown):
-            self.glyphs.append(Entity(parent=self))
+            self.glyphs.append(Entity(parent=self, ignore=True))
         self.home = []
         for glyph, (char, x, y) in zip(self.glyphs, shown):
             w = len(rows(char)[0])

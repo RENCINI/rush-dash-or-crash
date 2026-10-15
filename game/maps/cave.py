@@ -102,6 +102,7 @@ class Cave(Arena):
     title = 'THE CRYSTAL CAVE'
     radius = RADIUS
     sky = VOID
+    DUST = 'dust'
     spawn_position = polar(ARCH_RADIUS, 0)
     spawn_yaw = 90
 

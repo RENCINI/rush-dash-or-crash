@@ -7,6 +7,8 @@ scale) plus a few things the toon look needs, all doing nothing until asked.
   fire, poison, cold, a glowing enemy's cyan.
 - `gold` (rgb, amount) turns a body that colour all through, keeping its light and shade.
 - `dull` (0-1) greys it out and lifts it: stunned.
+- `neon` (0-1) lights up only the parts painted parry green, toward white: a green enemy throbs
+  where it is green, and nowhere else.
 - `fog` (rgb, amount) and `fog_range` (near, far) fade far things toward the sky in steps.
 - `pattern` (scale, strength) with `pattern_tex` lays a small pixel-art tile over a surface, picked
   by which way the face looks, so meshes need no texture coordinates (fx/textures.py).
@@ -48,6 +50,7 @@ uniform float flash;
 uniform vec4 status;
 uniform vec4 gold;
 uniform float dull;
+uniform float neon;
 uniform vec4 fog;
 uniform vec2 fog_range;
 uniform sampler2D pattern_tex;
@@ -70,12 +73,16 @@ void main() {
         colour.rgb *= 1.0 + (tile - 0.5) * 2.0 * pattern.y;
     }
     if (own > ''' + str(INK) + ''') {
+        vec3 v = vertex_color.rgb;
+        if (neon > 0.0 && v.g > 0.5 && v.g > v.r * 2.2 && v.g > v.b * 1.8) {
+            colour.rgb = mix(colour.rgb, vec3(0.85, 1.0, 0.85), neon);
+        }
         float light = dot(colour.rgb, LUMA);
         if (gold.a > 0.0) {
             colour.rgb = mix(colour.rgb, gold.rgb * (0.45 + 0.75 * light), gold.a);
         }
         if (status.a > 0.0) {
-            float band = light > 0.42 ? 1.0 : 0.62;
+            float band = light > 0.42 ? 1.0 : 0.8;
             colour.rgb = mix(colour.rgb, status.rgb * (0.55 + 0.6 * light), status.a * band);
         }
         if (dull > 0.0) {
@@ -112,6 +119,7 @@ def neutral(node):
     node.setShaderInput('status', Vec4(0, 0, 0, 0))
     node.setShaderInput('gold', Vec4(0, 0, 0, 0))
     node.setShaderInput('dull', 0.0)
+    node.setShaderInput('neon', 0.0)
     node.setShaderInput('fog', Vec4(0, 0, 0, 0))
     node.setShaderInput('fog_range', Vec2(0, 1))
     node.setShaderInput('pattern_tex', blank_pattern())

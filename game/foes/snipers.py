@@ -12,12 +12,12 @@ from random import choice
 from ursina import Entity, Vec3, color, raycast
 
 from data import tuning as T
-from fx.toon import barrel, box, build
+from fx.toon import barrel, box, build, burst_mesh, streak_mesh
 from game.foes.base import GOLD_SUIT, GOLD_TRIM, GREY, MODEL_SCALE, OUTLINE, Enemy, about_face, clone, fused
 
-OLIVE = color.hsv(88, 0.42, 0.52)
-LEAF = color.hsv(110, 0.45, 0.38)
-MUD = color.hsv(32, 0.45, 0.42)
+OLIVE = color.hsv(40, 0.36, 0.6)            # sand-coloured camouflage: green is kept for parrying
+LEAF = color.hsv(26, 0.45, 0.42)            # and a cape of dead brown leaves
+MUD = color.hsv(32, 0.45, 0.32)
 SKIN = color.hsv(26, 0.38, 0.9)
 BLACK = color.hsv(230, 0.2, 0.16)
 STEEL = color.hsv(220, 0.12, 0.4)
@@ -120,6 +120,7 @@ class Sniper(Enemy):
     kind = 'sniper'
     stripe = OLIVE
     HP = T.SNIPER_HP
+    DEATH = ('khaki', 'dirt')
     PARRY = False
     DOOR = False
     DAMAGE = T.SNIPER_DAMAGE
@@ -130,11 +131,12 @@ class Sniper(Enemy):
 
     def __init__(self, game, green, models, gold=False):
         super().__init__(game, green, models, gold)
-        self.rifle = Entity(parent=self.entity, model=clone(models['rifle']))
-        # the laser is its own thing in the world, not a part of the body, which turns and squashes
-        self.laser = Entity(model='cube', color=color.white, enabled=False)
-        self.laser.setLightOff()
-        self.dot = Entity(model='sphere', color=color.white, scale=0.18, enabled=False)
+        self.rifle = Entity(parent=self.entity, model=clone(models['rifle']), ignore=True)
+        # the laser is its own thing in the world, not a part of the body, which turns and squashes:
+        # an outlined beam, and an outlined star turning where it lands
+        self.laser = Entity(model=streak_mesh(tail=1.0, rim=0.6), color=color.white, enabled=False, ignore=True)
+        self.dot = Entity(model=burst_mesh(6, 0.45), billboard=True, double_sided=True, color=color.white, scale=0.18,
+                          enabled=False, ignore=True)
         self.perch = None
 
     def spawn(self, x, z, special=None, hp_scale=1.0, size=None):
@@ -216,7 +218,8 @@ class Sniper(Enemy):
         start = self.muzzle
         away = (player.centre - start).length()
         game.sfx.play('snipe', volume=max(0.5, 1 - away / 200))
-        game.particles.burst(start, (1, 0.9, 0.6), count=12, speed=8, size=0.07, life=0.2, white=0.6)
+        game.pixels.scatter(start, 'spark', count=16, speed=9, size=0.06, life=0.25, gravity=4, up=0)
+        game.pixels.scatter(end, 'spark', count=12, speed=6, size=0.06, life=0.3, gravity=8, up=1)
         self.flash_laser(start, end)
         # a dash made just now carries the player out from under it
         dodged = player.dash_timer > T.DASH_TIME - T.SNIPER_DODGE
@@ -250,12 +253,13 @@ class Sniper(Enemy):
         along = end - start
         length = along.length()
         laser.enabled = dot.enabled = True
-        laser.position = start + along / 2
+        laser.position = start
         laser.look_at(end)
         laser.scale = (width, width, length)
         laser.color = dot.color = color.Color(tint[0], tint[1], tint[2], 1)
         dot.position = end
-        dot.scale = width * 4
+        dot.scale = width * 5
+        dot.rotation_z = self.age * 240
 
     def update(self, dt, player, arena, others):
         self.shot_flash -= dt
@@ -289,6 +293,7 @@ class Elite(Sniper):
     kind = 'elite'
     stripe = TECH
     HP = T.ELITE_HP
+    DEATH = ('ink', 'frost')
     DAMAGE = T.ELITE_DAMAGE
 
     @classmethod

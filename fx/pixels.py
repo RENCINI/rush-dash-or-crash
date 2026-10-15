@@ -47,10 +47,33 @@ PALETTES = {
               (0.16, 0.2, 0.5), (0.12, 0.12, 0.3)),
     'legion': ((1, 0.9, 1), (0.92, 0.6, 1), (0.76, 0.32, 1), (0.58, 0.16, 0.92), (0.42, 0.08, 0.7), (0.3, 0.06, 0.5),
                (0.2, 0.04, 0.32), (0.12, 0.03, 0.2)),
-    'poison': ((0.9, 1, 0.78), (0.66, 1, 0.18), (0.28, 0.9, 0.24), (0.08, 0.58, 0.26), (0.68, 0.36, 1),
-               (0.5, 0.14, 0.82), (0.3, 0.06, 0.46), (0.17, 0.04, 0.24)),
+    # purple, with a sickly yellow at its hot end: never the green that means "parry this"
+    'poison': ((1, 1, 0.8), (0.9, 0.95, 0.35), (0.84, 0.6, 1), (0.68, 0.36, 1), (0.54, 0.2, 0.92),
+               (0.4, 0.1, 0.7), (0.26, 0.05, 0.44), (0.15, 0.03, 0.24)),
+    # what bodies break into, by what they are made of
+    'suit': ((1, 1, 1), (0.93, 0.94, 0.97), (0.8, 0.82, 0.88), (0.62, 0.64, 0.74), (0.42, 0.44, 0.56), (0.26, 0.27, 0.38)),
+    'ink': ((1, 1, 1), (0.7, 0.85, 1), (0.36, 0.6, 1), (0.2, 0.38, 0.9), (0.14, 0.22, 0.6), (0.1, 0.12, 0.34)),
+    'swamp': ((0.85, 1, 1), (0.55, 0.85, 0.95), (0.3, 0.62, 0.8), (0.18, 0.44, 0.64), (0.12, 0.3, 0.46), (0.08, 0.18, 0.3)),
+    'ochre': ((1, 0.95, 0.75), (1, 0.82, 0.45), (0.96, 0.62, 0.22), (0.78, 0.42, 0.12), (0.52, 0.26, 0.1), (0.3, 0.15, 0.08)),
+    'stone': ((0.9, 0.88, 1), (0.66, 0.62, 0.8), (0.48, 0.44, 0.62), (0.34, 0.3, 0.46), (0.22, 0.19, 0.32)),
+    'crystal': ((1, 1, 1), (1, 0.75, 0.95), (0.95, 0.42, 0.9), (0.62, 0.36, 1), (0.36, 0.7, 1), (0.22, 0.3, 0.6)),
+    'dirt': ((0.9, 0.8, 0.62), (0.74, 0.6, 0.44), (0.58, 0.44, 0.32), (0.44, 0.32, 0.24), (0.3, 0.22, 0.18)),
+    'khaki': ((1, 0.95, 0.78), (0.88, 0.78, 0.55), (0.7, 0.6, 0.4), (0.52, 0.42, 0.28), (0.34, 0.27, 0.2)),
+    'neon': ((1, 1, 1), (0.75, 1, 0.8), (0.35, 1, 0.45), (0.12, 0.85, 0.3), (0.06, 0.55, 0.22), (0.04, 0.3, 0.14)),
+    # puffs where something comes in: a ship's steam, a jungle's leaves, a cave's dust
+    'steam': ((1, 1, 1), (0.9, 0.94, 1), (0.76, 0.82, 0.92), (0.6, 0.66, 0.78), (0.44, 0.48, 0.6)),
+    'leaf': ((0.92, 0.95, 0.6), (0.66, 0.78, 0.36), (0.44, 0.6, 0.3), (0.5, 0.4, 0.22), (0.36, 0.26, 0.16)),
+    'dust': ((0.95, 0.85, 1), (0.74, 0.62, 0.86), (0.54, 0.44, 0.68), (0.38, 0.3, 0.52), (0.24, 0.19, 0.36)),
+    # fire that cools to smoke, sparks, smoke, petals and spores
+    'flame': ((1, 1, 0.85), (1, 0.92, 0.4), (1, 0.7, 0.15), (1, 0.42, 0.08), (0.88, 0.2, 0.08), (0.55, 0.12, 0.12),
+              (0.35, 0.3, 0.34), (0.22, 0.2, 0.26)),
+    'spark': ((1, 1, 1), (1, 0.98, 0.7), (1, 0.85, 0.35), (1, 0.6, 0.15), (0.8, 0.35, 0.1)),
+    'smoke': ((0.86, 0.86, 0.9), (0.68, 0.68, 0.74), (0.5, 0.5, 0.58), (0.36, 0.36, 0.44), (0.24, 0.24, 0.32)),
+    'petal': ((1, 1, 1), (1, 0.8, 0.9), (1, 0.55, 0.75), (1, 0.75, 0.3), (0.9, 0.4, 0.6)),
+    'spore': ((1, 0.95, 1), (1, 0.75, 0.6), (1, 0.55, 0.45), (0.85, 0.35, 0.5), (0.55, 0.22, 0.45)),
 }
 LOOKS = tuple(PALETTES)
+LOOK_INDEX = {look: i for i, look in enumerate(LOOKS)}
 STEPS = max(len(p) for p in PALETTES.values())
 
 # the pictures, one character a pixel, each a step of the look's palette; '.' is empty
@@ -200,7 +223,7 @@ class Pixels(Entity):
         self.cursor = (i + 1) % POOL
         self.pos[i] = position
         self.vel[i] = velocity
-        self.look[i] = LOOKS.index(look)
+        self.look[i] = LOOK_INDEX[look]
         self.size[i] = size
         self.life[i] = life
         self.age[i] = 0
@@ -221,6 +244,19 @@ class Pixels(Entity):
             s = speed * uniform(0.4, 1.0)
             self.emit((x, y, z), (cos(a) * s, sin(a) * s + up, 0), look, size * uniform(0.7, 1.3),
                       life * uniform(0.7, 1.2), first, last, gravity=gravity, drag=drag)
+
+    def scatter(self, position, look, count=20, speed=6.0, size=0.08, life=0.8, gravity=14.0, up=3.0, spread=0.3,
+                first=0, last=None, drag=1.5):
+        """Bits flung every way from `position` in the arena, falling and bouncing: a body breaking
+        up, a puff of earth or of steam. With little `gravity` and some `up` they drift instead."""
+        x, y, z = position[0], position[1], position[2]
+        last = len(PALETTES[look]) - 1 if last is None else last
+        for _ in range(count):
+            dx, dy, dz = on_sphere()
+            s = speed * uniform(0.4, 1.0)
+            self.emit((x + dx * spread, y + dy * spread, z + dz * spread), (dx * s, dy * s * 0.7 + up, dz * s), look,
+                      size * uniform(0.7, 1.3), life * uniform(0.7, 1.2), randint(first, min(first + 1, last)), last,
+                      gravity=gravity, drag=drag)
 
     def show(self, position, radius, look, shape=True):
         """An explosion of `radius` in `look` ('rocket', 'tiger' or 'poison'). `shape=False`
