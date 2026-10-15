@@ -2,7 +2,8 @@
 from math import exp, sin
 from random import choice, uniform
 
-from ursina import Entity, Vec3, camera, clamp, color, mouse, time
+from PIL import Image
+from ursina import Entity, Texture, Vec2, Vec3, camera, clamp, color, mouse, time
 
 from data import controls
 from data import tuning as T
@@ -22,7 +23,7 @@ TITLE = (
     (('XXX.', 'X.X.', 'XXX.', 'X.XX', 'X..X'), 185),
     (('X.X', 'X.X', 'X.X', 'X.X', 'XXX'), 52),
     (('XXX', 'X..', 'XXX', '..X', 'XXX'), 325),
-    (('X.X', 'X.X', 'XXX', 'X.X', 'X.X'), 130),
+    (('X.X', 'X.X', 'XXX', 'X.X', 'X.X'), 275),
 )
 CLASSIC_HUES = (178, 8, 282, 38)    # four of the weapons' own colours, for the first swatch
 # (hue, name); None keeps each weapon's own paint
@@ -42,6 +43,25 @@ ROW_UPGRADES, UPGRADES_X, UPGRADES_WIDTH, UPGRADES_HEIGHT = -0.42, 0.0, 0.3, 0.0
 STAGE_X, ERASE_X = -0.36, 0.36         # either side of it: which level to play, and deleting the save
 SURE_TIME = 3.0                         # how long DELETE SAVE waits for its second click
 DANGER = color.hsv(0, 0.7, 1)
+GOLD = color.hsv(46, 0.75, 1)
+EFFECTS_X = 0.42                        # the effects switch, beside DEFAULTS on the controls page
+ENTRANCE = 0.32                         # seconds for the board to slam in when the menu opens
+
+
+def stripes_texture(size=64):
+    """Hard-edged diagonal bands for the backdrop, scrolled slowly behind the board."""
+    image = Image.new('RGBA', (size, size))
+    pixels = image.load()
+    for y in range(size):
+        for x in range(size):
+            pixels[x, y] = (255, 255, 255, 255 if (x + y) % 32 < 12 else 0)
+    return Texture(image, filtering=None)
+
+
+def overshoot(t):
+    """0 to 1, a little past and back: something slamming into place."""
+    t = min(max(t, 0.0), 1.0) - 1
+    return 1 + 2.70158 * t ** 3 + 1.70158 * t ** 2
 
 # the controls page: a sensitivity slider over three columns of key slots
 ROW_AIM, ROW_HEADER, ROW_KEYS, KEY_STEP = 0.195, 0.125, 0.075, 0.049
@@ -95,6 +115,12 @@ class Menu(Entity):
 
         self.screen = Entity(parent=self, enabled=False)
         Entity(parent=self.screen, model='quad', scale=(4, 2), z=1, color=color.Color(INK[0], INK[1], INK[2], 0.6))
+        # bands drifting across the dark, over the blurred arena (see fx/postfx.py)
+        self.stripes = Entity(parent=self.screen, model='quad', texture=stripes_texture(), scale=(4, 2), z=0.9,
+                              color=color.Color(1, 1, 1, 0.05))
+        self.opened = 0.0           # seconds since it opened, for the board to slam in
+        self.shake = 0.0
+        self.firework = 0.0
         self.board = Entity(parent=self.screen)     # leans toward the mouse
         self.main = Entity(parent=self.board)
         self.controls = Entity(parent=self.board, enabled=False)
@@ -114,8 +140,12 @@ class Menu(Entity):
         self.add_button('erase', 'DELETE SAVE', ERASE_X, ROW_UPGRADES, UPGRADES_WIDTH, UPGRADES_HEIGHT)
         self.add_button('done', 'DONE', DONE_X, ROW_DONE, SMALL_WIDTH, SMALL_HEIGHT)
         self.add_button('defaults', 'DEFAULTS', DEFAULTS_X, ROW_DONE, SMALL_WIDTH, SMALL_HEIGHT)
+        self.add_button('effects', self.effects_label(), EFFECTS_X, ROW_DONE, SMALL_WIDTH, SMALL_HEIGHT)
         self.footer = Label(parent=self.screen, text='', origin=(0, 0), position=(0, -0.44), scale=0.8,
                            color=color.hsv(230, 0.08, 0.78))
+        # big news: the game beaten
+        self.headline = Label(parent=self.screen, text='', origin=(0, 0), position=(0, -0.205, -0.1), scale=2.4,
+                              letters=True, color=GOLD, enabled=False)
         self.refresh()
 
     # --- building ---
@@ -214,16 +244,33 @@ class Menu(Entity):
 
     # --- opening and closing ---
 
-    def open(self, news=None):
-        """`news` is a line for the foot of the screen, in place of the usual one."""
+    def effects_label(self):
+        return 'EFFECTS: ON' if self.settings.effects else 'EFFECTS: OFF'
+
+    def open(self, news=None, headline=None):
+        """`news` is a line for the foot of the screen, in place of the usual one; `headline` is big
+        news across the middle, in gold, under fireworks."""
         self.is_open = True
         self.screen.enabled = True
+        self.opened = 0.0
         self.play_text.text = 'RESUME' if self.started else 'PLAY'
         self.upgrades.enabled = not self.started
-        self.footer.text = news or ('ESC  back to the match' if self.started else '')
+        self.footer.text = news or (self.where() + '   ESC  back to the match' if self.started else '')
+        self.headline.text = headline or ''
+        self.headline.enabled = bool(headline)
         self.show_stage()
         self.show_page('main')
         self.game.pause(True)
+
+    def where(self):
+        """The match under way, for the foot of the pause menu."""
+        game = self.game
+        director = game.director
+        if not director.running:
+            return ''
+        chain = f'   CHAIN X{game.chain.tier}' if game.chain.tier else ''
+        return (f'LEVEL {director.level}   ROUND {director.round + 1}/{len(director.rounds)}   '
+                f'SCORE {game.chain.score:,}{chain}')
 
     def close(self):
         self.show_page('main')
@@ -348,14 +395,19 @@ class Menu(Entity):
         self.relabel('erase', 'DELETE SAVE')
 
     def erase(self):
-        """The first click asks, the second within a few seconds deletes."""
+        """The first click asks, shaking and red; the second within a few seconds deletes."""
         if self.sure <= 0:
             self.sure = SURE_TIME
             self.relabel('erase', 'SURE? CLICK AGAIN')
+            self.shake = 0.6
+            self.game.sfx.play('deny')
+            self.burst('erase', 'hurt', 3)
             return
         self.game.erase()
         self.sure = -SURE_TIME
         self.relabel('erase', 'SAVE DELETED')
+        self.shake = 1.0
+        self.burst('erase', 'hurt', 8)
         self.show_stage()
 
     def burst(self, name, look, count):
@@ -380,6 +432,11 @@ class Menu(Entity):
             self.erase()
         elif name == 'defaults':
             self.restore_defaults()
+        elif name == 'effects':
+            self.settings.effects = not self.settings.effects
+            self.settings.save()
+            self.game.apply_settings()
+            self.relabel('effects', self.effects_label())
         else:
             self.show_page('controls' if name == 'controls' else 'main')
 
@@ -494,7 +551,23 @@ class Menu(Entity):
             return
         dt = min(time.dt_unscaled, 0.05)    # real time: the match's hitstop must not slow the menu
         self.clock += dt
+        self.opened += dt
         clock = self.clock
+        self.stripes.set_shader_input('texture_scale', Vec2(6, 3))
+        self.stripes.set_shader_input('texture_offset', Vec2(clock * 0.05, 0))
+        # the board slams in when the menu opens, and shakes when something is refused
+        self.shake = max(0.0, self.shake - dt * 3)
+        jolt = 0.012 * self.shake ** 2
+        self.screen.position = (uniform(-jolt, jolt), uniform(-jolt, jolt), 0)
+        if self.opened < ENTRANCE * 2:
+            self.board.scale = overshoot(self.opened / ENTRANCE)
+        if self.headline.enabled:
+            self.headline.drop_in(self.opened) if self.opened < 1.0 else self.headline.wave(clock, height=1.2, speed=6)
+            self.firework -= dt
+            if self.firework <= 0:
+                self.firework = uniform(0.18, 0.4)
+                at = Vec3(uniform(-0.7, 0.7), uniform(-0.1, 0.4), -0.2)
+                self.sparks.spray(at, 'rush', count=26, speed=0.45, size=0.005, life=0.8, gravity=0.5)
         x, y = mouse.x, mouse.y
         if self.dragging:
             self.slide(x)
@@ -520,7 +593,8 @@ class Menu(Entity):
 
         for i, letter in enumerate(self.letters):
             phase = clock * 2.4 - i * 0.8
-            letter.y = TITLE_Y + 0.012 * sin(phase)
+            drop = max(0.0, 1 - (self.opened - i * 0.07) / 0.25)     # each letter falls in after the last
+            letter.y = TITLE_Y + 0.012 * sin(phase) + 0.5 * drop * drop
             letter.rotation_z = 4 * sin(phase * 0.8)
             letter.rotation_y = 14 * sin(phase * 0.45)
         # the title glitters

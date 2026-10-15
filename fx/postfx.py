@@ -115,6 +115,7 @@ class PostFx(Entity):
         self.targets = dict(DEFAULTS)
         self.pulses = {}            # name -> [peak, seconds, seconds left]
         self.edge_colour = (1.0, 1.0, 1.0)
+        self.reveal_time = self.reveal_left = 0.0
         self.written = {}
         self.active = False
         self.switch(enabled)
@@ -150,6 +151,11 @@ class PostFx(Entity):
         if held is None or peak >= held[0] * held[2] / held[1]:
             self.pulses[name] = [peak, seconds, seconds]
 
+    def reveal(self, seconds=0.6):
+        """Cover the screen in blocks of ink at once, and take them away over `seconds`: the new
+        place, or the new start, comes up out of the dark."""
+        self.reveal_time = self.reveal_left = seconds
+
     def edge(self, colour, amount):
         self.edge_colour = (colour[0], colour[1], colour[2])
         self.set('edge_amount', amount)
@@ -173,6 +179,9 @@ class PostFx(Entity):
             self.pulses[name][2] -= dt
             if self.pulses[name][2] <= 0:
                 del self.pulses[name]
+        if self.reveal_left > 0:
+            self.reveal_left = max(0.0, self.reveal_left - dt)
+            self.values['wipe'] = self.reveal_left / self.reveal_time
         if self.active:
             self.write()
 

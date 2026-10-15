@@ -1,5 +1,5 @@
 from colorsys import hsv_to_rgb
-from math import cos, exp, pi, sin
+from math import atan2, cos, degrees, exp, pi, sin
 from random import Random, choice, uniform
 
 from PIL import Image, ImageDraw
@@ -8,7 +8,7 @@ from ursina import Entity, Mesh, Texture, Vec2, Vec3, camera, clamp, color, time
 from data import tuning as T
 from data.controls import key_name
 from fx.pixels import Pixels
-from fx.toon import build, plate
+from fx.toon import build, disc, plate
 from ui.font import Label
 from ui.health import BossBar, HealthBar
 from ui.score import ScoreHud
@@ -40,16 +40,30 @@ SPARK_TINTS = (color.white, color.hsv(190, 0.4, 1), color.hsv(55, 0.5, 1), color
 
 
 def help_text():
-    """The controls as they are bound right now."""
+    """The controls as they are bound right now: three short lines for the foot of the screen."""
     move = ' '.join(key_name(key) for key in (T.KEY_FORWARD, T.KEY_LEFT, T.KEY_BACK, T.KEY_RIGHT))
     slide = ' or '.join(key_name(key) for key in T.KEYS_SLIDE)
     weapons = ' '.join(key_name(key) for key in T.KEYS_WEAPON)
-    wheel = f'{key_name(T.KEY_PREVIOUS_WEAPON)} / {key_name(T.KEY_NEXT_WEAPON)}'
-    return (f'{move} move   {key_name(T.KEY_JUMP)} jump / double jump / wall-kick   {key_name(T.KEY_DASH)} dash   '
-            f'{slide} slide\n'
-            f'{key_name(T.KEY_FIRE)} fire   {key_name(T.KEY_SCOPE)} scope (Longshot) / sticky (Impulse)   {weapons} or {wheel}: weapons   '
-            f'{key_name(T.KEY_RELOAD)} reload   {key_name(T.KEY_RESPAWN)} respawn   {key_name(T.KEY_SPAWN_MANY)} fill arena\n'
-            f'{key_name(T.KEY_KATANA)} katana: slash, and parry anything GREEN   ESC menu')
+    return (f'{move} move   {key_name(T.KEY_JUMP)} jump / wall-kick   {key_name(T.KEY_DASH)} dash   {slide} slide\n'
+            f'{key_name(T.KEY_FIRE)} fire   {key_name(T.KEY_SCOPE)} scope / sticky   {weapons} weapons   '
+            f'{key_name(T.KEY_RELOAD)} reload\n'
+            f'{key_name(T.KEY_KATANA)} katana: parry anything GREEN   ESC menu')
+
+
+def tick_model():
+    """One stroke of the hit marker: an outlined bar, one unit tall."""
+    return build([(plate([(-0.11, -0.5), (0.11, -0.5), (0.11, 0.5), (-0.11, 0.5)], 0.1), (1, 1, 1))], 0.07)
+
+
+def diamond_model():
+    """A drive charge: an outlined diamond, one unit across."""
+    return build([(plate([(0, -0.5), (0.5, 0), (0, 0.5), (-0.5, 0)], 0.1), (1, 1, 1))], 0.1)
+
+
+def arrow_model():
+    """A chunky outlined arrowhead pointing along +y, one unit long."""
+    return build([(plate([(0, 0.5), (0.45, -0.3), (0.16, -0.18), (0.16, -0.5), (-0.16, -0.5), (-0.16, -0.18),
+                          (-0.45, -0.3)][::-1], 0.1), (1, 1, 1))], 0.08)
 
 
 def rush_colour(t):
@@ -271,7 +285,7 @@ class SpeedBar(Entity):
              color=color.hsv(230, 0.08, 0.8))
         self.multiplier = Label(parent=self, text='x0.50', origin=(0, 0), position=(0, -0.05, -0.1), scale=1.5)
         # drive charges, earned by parrying
-        self.drive_pips = [Entity(parent=self, model='quad', scale=(0.02, 0.009), z=-0.1,
+        self.drive_pips = [Entity(parent=self, model=diamond_model(), scale=0.016, z=-0.1,
                                   position=((i - (T.DRIVE_MAX - 1) / 2) * 0.026, -0.088), color=DIM)
                            for i in range(T.DRIVE_MAX)]
         self.shown_drive = 0
@@ -463,7 +477,9 @@ class Hud(Entity):
         self.streaks = [Entity(parent=self, model=streak_mesh(seed), double_sided=True, z=1, enabled=False)
                         for seed in (1, 2)]
         self.streak_timer = 0.0
-        self.hurt = Entity(parent=self, model='quad', scale=(2, 1), color=color.hsv(0, 0.9, 1, 0), z=0.5)
+        # hurt: red closing in round the edge, as health coming back is green (see heal_flash)
+        self.hurt = Entity(parent=self, model='quad', texture=edge_texture(), scale=(1.8, 1), color=color.hsv(0, 0.9, 1, 0),
+                           z=0.5)
         self.healed = Entity(parent=self, model='quad', texture=edge_texture(), scale=(1.8, 1), z=0.49,
                              color=color.Color(HEAL[0], HEAL[1], HEAL[2], 0))
         self.white = Entity(parent=self, model='quad', scale=(2, 1), color=color.Color(1, 1, 1, 0), z=0.48)
@@ -473,11 +489,17 @@ class Hud(Entity):
         self.scope = Entity(parent=self, model='quad', texture=self.sights['cross'], z=0.45, enabled=False)
         self.quick_ring = Entity(parent=self, model='quad', texture=ring_texture(), color=GOLD, enabled=False)
 
-        self.dot = Entity(parent=self, model='circle', scale=0.006, color=color.white)
-        # hit marker: four ticks in an X around the crosshair
-        self.marker = [Entity(parent=self, model='quad', scale=(0.004, 0.02), rotation_z=45 + 90 * i,
+        # the crosshair: an outlined dot
+        self.dot = Entity(parent=self, model=build([(plate(disc(0.5, steps=10), 0.1), (1, 1, 1))], 0.16),
+                          scale=0.008, color=color.white)
+        # hit marker: four chunky outlined ticks in an X around the crosshair, which spin on a kill
+        self.marker_holder = Entity(parent=self)
+        self.marker = [Entity(parent=self.marker_holder, model=tick_model(), scale=0.02, rotation_z=45 + 90 * i,
                               position=(sin(pi / 4 + i * pi / 2) * 0.028, cos(pi / 4 + i * pi / 2) * 0.028),
                               enabled=False) for i in range(4)]
+        self.marker_spin = 0.0
+        # a sniper's aim: an arrow at the edge of the screen pointing to it
+        self.threat_arrow = Entity(parent=self, model=arrow_model(), scale=0.045, enabled=False)
 
         self.overdrive = Label(parent=self, text='', origin=(0, 0), position=(0, 0.13), scale=2, letters=True)
         self.bar = SpeedBar(self)
@@ -499,10 +521,12 @@ class Hud(Entity):
                           scale=2.2, letters=True)
         self.shown_ammo = None
         self.ammo_pop = 0.0
-        self.reload_back = Entity(parent=self, model='quad', scale=(0.1, 0.006), position=(0, -0.1),
-                                  color=color.hsv(0, 0, 1, 0.2), enabled=False)
-        self.reload_fill = Entity(parent=self, model='quad', origin=(-0.5, 0), scale=(0.1, 0.006),
-                                  position=(-0.05, -0.1, -0.01), enabled=False)
+        # the reload bar: a dark socket like the dash bars', and a fill from its left end
+        self.reload_back = Entity(parent=self, position=(0, -0.1), enabled=False, model=build(
+            [(plate([(-0.054, -0.007), (0.054, -0.007), (0.054, 0.007), (-0.054, 0.007)], 0.01), color.hsv(250, 0.35, 0.25))],
+            0.003))
+        self.reload_fill = Entity(parent=self, position=(-0.05, -0.1, -0.01), scale=(0.1, 1), enabled=False,
+                                  model=build([(plate([(0, -0.004), (1, -0.004), (1, 0.004), (0, 0.004)], 0.01), (1, 1, 1))], 0))
         self.reload_text = Label(parent=self, text='', origin=(0, 0), position=(0, -0.125), scale=0.8)
         self.kills = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.322), scale=0.9)
         self.tag = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.396), scale=1)
@@ -521,10 +545,15 @@ class Hud(Entity):
                           enabled=False)
         self.note_time = 0.0
         # a sniper has the player in its sights: which way it is, and how long is left
-        self.alarm = Label(parent=self, text='', origin=(0, 0), position=(0, 0.16), scale=1.6, enabled=False)
+        self.alarm = Label(parent=self, text='', origin=(0, 0), position=(0, 0.16), scale=1.6, enabled=False, letters=True)
         self.danger = None          # (how red, seconds left, the sniper) of the one closest to firing
         self.danger_time = 0.0
-        self.help = Label(parent=self, origin=(-0.5, 0.5), position=(-0.86, 0.47), scale=0.62, text=help_text())
+        self.help = Label(parent=self, origin=(0, 0), position=(-0.13, -0.385), scale=0.62, text=help_text(),
+                          color=color.hsv(230, 0.08, 0.86))
+        # frames a second, for checking the game keeps up: F3 shows it
+        self.fps = Label(parent=self, text='', origin=(-0.5, 0), position=(-0.86, 0.475), scale=0.75, enabled=False)
+        self.fps_time = 0.0
+        self.fps_frames = 0
         self.score = ScoreHud(self)     # the chain badge, the score and the points flying to it
 
     # --- events ---
@@ -544,10 +573,12 @@ class Hud(Entity):
         self.marker_time = 0.14 if killed else 0.07
         tint = tint or (color.hsv(50, 0.9, 1) if killed else color.white)
         size = size or (1.6 if killed else 1.0)
+        self.marker_spin = 1.0 if killed else 0.0
+        self.marker_holder.rotation_z = 0
         for i, tick in enumerate(self.marker):
             a = pi / 4 + i * pi / 2
             tick.position = (sin(a) * 0.028 * size, cos(a) * 0.028 * size)
-            tick.scale = (0.004 * size, 0.02 * size)
+            tick.scale = 0.02 * size
             tick.color = tint
             tick.enabled = True
 
@@ -609,8 +640,12 @@ class Hud(Entity):
         self.shown_weapon = -1
 
     def blast(self):
-        """White flash across the whole screen, for the Longshot going off."""
-        self.blast_time = BLAST_TIME
+        """White flash across the whole screen, for the Longshot going off: the full-screen effects
+        do it if they are on, the HUD if not."""
+        if self.game.postfx.active:
+            self.game.postfx.pulse('flash', 0.5, BLAST_TIME)
+        else:
+            self.blast_time = BLAST_TIME
 
     def hurt_flash(self, amount=0.0):
         self.hurt_time = 0.35
@@ -633,9 +668,19 @@ class Hud(Entity):
 
     # --- frame ---
 
+    def input(self, key):
+        if key == 'f3':
+            self.fps.enabled = not self.fps.enabled
+
     def update(self):
         dt = time.dt
         self.age += dt
+        if self.fps.enabled:
+            self.fps_time += time.dt_unscaled
+            self.fps_frames += 1
+            if self.fps_time >= 0.25:
+                self.fps.text = f'{self.fps_frames / self.fps_time:.0f} FPS'
+                self.fps_time = self.fps_frames = 0
         self.update_rush()
         self.bar.tick(dt)
         self.update_streaks(dt)
@@ -650,6 +695,7 @@ class Hud(Entity):
         if self.danger_time <= 0 or self.danger is None:
             self.danger = None
             self.alarm.enabled = False
+            self.threat_arrow.enabled = False
             return
         heat, left, sniper = self.danger
         self.danger = (heat, left + 1e-3, sniper)      # so the same sniper's next call replaces this one
@@ -672,6 +718,18 @@ class Hud(Entity):
         blink = 0.6 + 0.4 * abs(sin(self.age * (5 + 14 * heat)))
         alarm.color = color.Color(0.45 + 0.55 * heat, 0.85 - 0.7 * heat, 1 - 0.9 * heat, blink if heat > 0 else 0.7)
         alarm.scale = 1.4 + 0.8 * heat
+        if heat > 0.5:
+            alarm.jiggle(self.age, amount=0.6 + heat)     # close to the shot: the words shake
+        else:
+            alarm.settle()
+        # an arrow on an oval round the middle of the screen, pointing out toward the sniper
+        way = atan2(across, ahead)
+        arrow = self.threat_arrow
+        arrow.enabled = True
+        arrow.position = (sin(way) * 0.62, cos(way) * 0.36, -0.05)
+        arrow.rotation_z = degrees(way)
+        arrow.color = alarm.color
+        arrow.scale = 0.04 + 0.025 * heat * blink
 
     def update_rush(self):
         rush = self.player.rush
@@ -786,11 +844,14 @@ class Hud(Entity):
         if self.marker_time <= 0 and self.marker[0].enabled:
             for tick in self.marker:
                 tick.enabled = False
+        if self.marker_spin > 0:
+            self.marker_spin = max(0.0, self.marker_spin - dt * 6)
+            self.marker_holder.rotation_z += 900 * self.marker_spin * dt       # a kill's X spins as it fades
 
         self.hurt_time = max(0.0, self.hurt_time - dt)
         self.blast_time = max(0.0, self.blast_time - dt)
         self.white.color = color.Color(1, 1, 1, 0.5 * (self.blast_time / BLAST_TIME) ** 2)
-        self.hurt.color = color.hsv(0, 0.9, 1, 0.45 * self.hurt_time / 0.35)
+        self.hurt.color = color.hsv(0, 0.9, 1, 0.7 * self.hurt_time / 0.35)
         if self.heal_time > 0:
             self.heal_time = max(0.0, self.heal_time - dt)
             t = self.heal_time / HEAL_TIME

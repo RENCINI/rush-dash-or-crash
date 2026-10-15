@@ -2613,6 +2613,32 @@ check('every map is dressed: patterned floors and walls, fog, pools of light, th
                              for n, fogged, lit, drifts, squash, flash, still in dressed.values()),
       f'(patterned pieces, fog, lamps, ambient, pad squash, gate flash, settled)={dressed}')
 
+app.input('f3')
+counting = s.hud.fps.enabled
+run(0.4)
+fps_text = s.hud.fps.text
+app.input('f3')
+post.reveal(0.2)
+run(1 / 60)
+covered = post.values['wipe']
+run(0.3)
+uncovered = post.values['wipe']
+menu.open(headline='YOU BEAT THE GAME')
+headline = (menu.headline.enabled, menu.headline.text)
+menu.show_page('controls')
+filtered_before = post.active
+click(menus.EFFECTS_X, menus.ROW_DONE)
+switched = (s.settings.effects, post.active, menu.labels['effects'].text)
+click(menus.EFFECTS_X, menus.ROW_DONE)
+restored = (s.settings.effects, post.active == filtered_before)
+menu.show_page('main')
+menu.close()
+check('the HUD counts frames on F3; a new place comes up out of a block wipe; the menu turns the effects off and '
+      'on, and shouts big news', counting and fps_text.endswith('FPS') and covered > 0.8 and uncovered == 0
+      and headline == (True, 'YOU BEAT THE GAME') and switched == (False, False, 'EFFECTS: OFF')
+      and restored == (True, True), f'fps={counting} {fps_text!r} wipe {covered:.2f}->{uncovered:.2f} '
+      f'headline={headline} effects off={switched} back on={restored}')
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from palette import offenders
 

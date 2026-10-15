@@ -117,6 +117,7 @@ class Session(Entity):
         self.map.player = self.player
         self.map.game = self
         self.map.apply_fog()
+        self.postfx.reveal(0.7)         # the new place comes up out of the dark
         window.color = self.map.sky
         self.player.spawn_position = Vec3(*self.map.spawn_position)
         self.player.spawn_yaw = self.map.spawn_yaw
@@ -175,7 +176,7 @@ class Session(Entity):
         if after_level and self.menu is not None and self.progress.cleared == len(LEVELS) \
                 and self.director.pick is None:
             # the last level, for the first time: from now on the menu offers any level, or endless
-            self.menu.open('YOU BEAT THE GAME   PICK A MODE')
+            self.menu.open('PICK A MODE: ENDLESS, OR ANY LEVEL AGAIN', headline='YOU BEAT THE GAME')
         elif after_level:
             self.pause(False)
             self.begin()
@@ -238,7 +239,11 @@ class Session(Entity):
             elif self.chain.tier:
                 self.chain_climbed(self.chain.tier, quiet=True)     # knocked down a step or two
         elif name == 'death':
-            # dying costs the level: back to its first round, with everything earned kept
+            # dying costs the level: back to its first round, with everything earned kept. The
+            # colour drains, the HUD's banner shatters, and the level comes back up out of the dark
+            self.postfx.pulse('saturation', 0.1, 1.0)
+            self.postfx.reveal(0.9)
+            self.juice.shake(0.8)
             self.kills = 0
             self.progress.save()
             self.director.on_death()
@@ -423,7 +428,7 @@ def build(mute=False, menu=False, settings=None, level=None, **kwargs):
     # Ursina's default shader recomputes fog inputs for every entity every frame; ours is unlit
     shaders.install()
     if getattr(window, 'fps_counter', None):
-        window.fps_counter.enabled = True
+        window.fps_counter.enabled = False      # in the default font: the HUD has its own (F3)
     if getattr(window, 'exit_button', None):
         window.exit_button.enabled = False
     app.session = Session(mute, settings)

@@ -20,7 +20,7 @@ from ursina import Entity, Mesh, Vec2, Vec3, camera, color
 
 from data import tuning as T
 from fx.popups import world_to_ui
-from fx.toon import ball, barrel, build, heart, loft, placed, plate
+from fx.toon import ball, barrel, build, disc, heart, loft, placed, plate
 from ui.font import Label
 
 X, Y = -0.805, -0.448           # the left end of the fill
@@ -147,8 +147,8 @@ class HealthBar(Entity):
                            color=color.white)
         self.flash = Entity(parent=self, model='quad', origin=(-0.5, 0), position=(X, Y, 0.0105),
                             scale=(0.04, HEIGHT), color=color.Color(1, 1, 1, 0))
-        self.surface = Entity(parent=self, model='circle', position=(X, Y, 0.0108), scale=(0.012, HEIGHT),
-                              enabled=False)
+        self.surface = Entity(parent=self, model=build([(plate(disc(0.5, steps=10), 0.1), (1, 1, 1))], 0.1),
+                              position=(X, Y, 0.0108), scale=(0.012, HEIGHT), enabled=False)
         # the empty seat, and the heart that sits in it
         self.hollow = Entity(parent=self, position=(*SEAT, 0.01), scale=SEAT_SIZE, enabled=False,
                              model=build([(part, SOCKET) for part in heart_parts(0.1)], 0.08))
@@ -623,12 +623,15 @@ class BossBar(Entity):
                            color=color.hsv(355, 0.8, 0.95))
         self.gloss = Entity(parent=self, model='quad', origin=(-0.5, 0), position=(-width / 2, height * 0.26, 0.012),
                             scale=(width, height * 0.22), color=color.Color(1, 1, 1, 0.3))
-        self.label = Label(parent=self, text='', origin=(0, 0), y=0.04, scale=1.5, color=color.hsv(355, 0.5, 1))
+        self.label = Label(parent=self, text='', origin=(0, 0), y=0.04, scale=1.5, color=color.hsv(355, 0.5, 1),
+                           letters=True)
+        self.appear = 9.0       # seconds since it came up: it slams in and its name drops in letter by letter
 
     def show(self, enemy):
         self.enemy = enemy
         self.enabled = enemy is not None
         self.shown = self.ghost_at = self.last = 1.0
+        self.appear = 0.0
         if enemy is not None:
             self.label.text = enemy.boss.name
 
@@ -660,7 +663,14 @@ class BossBar(Entity):
         self.shake = max(0.0, self.shake - dt * 4)
         jitter = 0.008 * self.shake
         self.x, self.y = uniform(-jitter, jitter), 0.315 + uniform(-jitter, jitter)
+        self.appear += dt
         self.label.scale = 1.5 * (1 + 0.1 * self.shake)
+        if self.appear < 1.2:
+            self.label.drop_in(self.appear)
+            t = min(self.appear / 0.3, 1.0) - 1
+            self.scale = 1 + 2.70158 * t ** 3 + 1.70158 * t ** 2 + (0.6 * (1 - self.appear / 0.3) if self.appear < 0.3 else 0)
+        else:
+            self.scale = 1
 
 
 def crack_mesh():
