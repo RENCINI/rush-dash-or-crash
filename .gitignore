@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.backup-*/
+assets/sfx/
+progress*.json
+settings.json
+tests/shots/
+.claude/
