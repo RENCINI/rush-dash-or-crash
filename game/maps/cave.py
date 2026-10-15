@@ -1,4 +1,5 @@
 from math import sin, tau
+from colorsys import hsv_to_rgb
 from random import Random
 
 from ursina import Entity, Vec3, color, time
@@ -103,6 +104,8 @@ class Cave(Arena):
     radius = RADIUS
     sky = VOID
     DUST = 'dust'
+    FOG = ((0.1, 0.06, 0.17), 0.42, 25, 95)
+    PAD_LOOK = 'steam'
     spawn_position = polar(ARCH_RADIUS, 0)
     spawn_yaw = 90
 
@@ -121,6 +124,29 @@ class Cave(Arena):
         self.build_arches()
         self.build_heart()
         self.build_scatter()
+        # every crystal pillar, the great crystal and the arches light the rock round them in their colour
+        lamps = [(polar(SPIRE_RADIUS, SPIRE_FIRST + i * 360 / SPIRES, SPIRE_HEIGHT * 0.6),
+                  hsv_to_rgb(HUES[i % len(HUES)] / 360, 0.55, 1), 11) for i in range(SPIRES)]
+        lamps.append(((0, 5, 0), (1, 1, 1), 17))
+        lamps += [(polar(ARCH_RADIUS, angle, 4), (1, 1, 1), 9) for angle in ARCHES]
+        self.set_lamps(lamps)
+        rng = self.rng
+        self.every(14, lambda: self.mote(rng))
+        self.every(3, lambda: self.drip(rng))
+        for radius, angle in GEYSERS:
+            self.every(3, lambda at=polar(radius, angle, 0.6): self.game.pixels.scatter(
+                at, 'steam', count=2, speed=0.8, size=0.12, life=1.1, gravity=-1.5, up=2, spread=0.5))
+
+    def mote(self, rng):
+        """Dust in the air, catching the crystals' light."""
+        at = polar(rng.uniform(5, RADIUS - 2), rng.uniform(0, 360), rng.uniform(0.5, 10))
+        self.game.pixels.emit(at, (rng.uniform(-0.3, 0.3), rng.uniform(-0.1, 0.25), rng.uniform(-0.3, 0.3)), 'crystal',
+                              0.05, rng.uniform(2.5, 4), 1, 4, gravity=-0.05, drag=0.4)
+
+    def drip(self, rng):
+        """A drop of water falls from the tip of a stalactite."""
+        at = rng.choice(self.drips)
+        self.game.pixels.emit(at, (0, 0, 0), 'frost', 0.05, 1.4, 1, 5, gravity=14, drag=0)
 
     def build_ground(self):
         step = 360 / self.wall_segments
@@ -139,7 +165,7 @@ class Cave(Arena):
                 # veins of crystal along both edges of the track, a different colour every few yards
                 hue = HUES[(i // 2) % len(HUES)]
                 veins += [(wedge(r - 0.18, r + 0.18, a0, a1, 0, 0.04), crystal_colour(hue)) for r in TRACK]
-        self.piece(ground, outline=0)
+        self.piece(ground, outline=0, pattern=('veins', 0.35, 0.14))
         self.lamp(veins, depth=0.0)
 
     def build_wall(self):
@@ -175,8 +201,8 @@ class Cave(Arena):
             for side in (-1, 1):
                 gems.append((crystal(polar(RADIUS - 1.0, angle + side * 2.6), 0.35, 1.7, lean=side * 12, yaw=angle),
                              crystal_colour(hue)))
-        self.piece(rock)
-        self.lamp(gems)
+        self.piece(rock, pattern=('strata', 0.25, 0.12))
+        self.lamp(gems, outline=0.05)
 
     def build_dome(self):
         """The roof: rock all the way over, hung with stalactites and with the vines that
@@ -188,11 +214,14 @@ class Cave(Arena):
             a0, a1 = i * step, (i + 1) * step
             rock += [(dome_plate(DOME_INNER, 30, a0, a1), ROCK_DARK if i % 2 else ROCK),
                      (dome_plate(30, RADIUS + 7, a0, a1), ROCK if i % 2 else ROCK_ALT)]
+        self.drips = []         # the tips of the stalactites, where water falls from
         for _ in range(46):
             r, angle = rng.uniform(8, RADIUS - 3), rng.uniform(0, 360)
             top = dome_height(r) + 0.3
-            rock.append((drum(0.08, top - rng.uniform(1.5, 4.5), top, polar(r, angle), sides=5, top=rng.uniform(0.5, 1.0)),
+            tip = top - rng.uniform(1.5, 4.5)
+            rock.append((drum(0.08, tip, top, polar(r, angle), sides=5, top=rng.uniform(0.5, 1.0)),
                          ROCK_PALE if rng.random() < 0.4 else ROCK_ALT))
+            self.drips.append(polar(r, angle, tip - 0.1))
         for i, (r, angle) in enumerate(HANGING):
             top = dome_height(r) + 0.3
             at = polar(r, angle)
@@ -206,7 +235,7 @@ class Cave(Arena):
             Entity(parent=pivot, model=glow(lit))
             self.vines.append(Vine(pivot, length, phase=rng.uniform(0, tau)))
             self.anchors.append(at + Vec3(0, HANG_LOW, 0))
-        self.piece(rock, outline=0)
+        self.piece(rock, outline=0, pattern=('veins', 0.2, 0.1))
 
     def build_ledges(self):
         parts, gems = [], []
@@ -224,8 +253,8 @@ class Cave(Arena):
                 self.perches.append(polar(RADIUS - 4, angle + side * 16, LEDGE_HEIGHT))
                 gems.append((crystal(polar(LEDGE_INNER + 0.8, angle + side * 24, LEDGE_HEIGHT), 0.4, 2.0, lean=side * 10,
                                      yaw=angle), crystal_colour(HUES[(angle // 90 + side) % len(HUES)])))
-        self.piece(parts)
-        self.lamp(gems)
+        self.piece(parts, pattern=('strata', 0.3, 0.12))
+        self.lamp(gems, outline=0.05)
 
     def build_spires(self):
         """Pillars of crystal, flat on top: each a different colour, each a place to snipe from."""
@@ -241,7 +270,7 @@ class Cave(Arena):
                      (crystal(foot + polar(1.5, angle + 70), 0.5, 3.4, lean=16, yaw=angle + 70), crystal_colour(hue, 0.85)),
                      (crystal(foot + polar(1.4, angle - 110), 0.4, 2.3, lean=20, yaw=angle - 110), crystal_colour(hue, 0.9))]
             rock.append((drum(2.4, 0, 0.5, foot, sides=7, top=2.0), ROCK_PALE))
-        self.lamp(gems)
+        self.lamp(gems, outline=0.06)
         self.piece(rock)
 
     def build_geysers(self):
@@ -269,7 +298,7 @@ class Cave(Arena):
                 # leaning in over the track; the far one leans the other way
                 lit.append((crystal(foot, 0.7, 10.0, lean=-side * 42, yaw=angle), color.white))
                 lit.append((crystal(foot, 0.4, 3.0, lean=side * 20, yaw=angle + 60), color.hsv(0, 0, 0.85)))
-            self.gates.append((centre, [self.lamp(lit)]))
+            self.gates.append((centre, [self.lamp(lit, outline=0.05)]))
         self.piece(rock)
 
     def build_heart(self):
@@ -282,7 +311,7 @@ class Cave(Arena):
             a = k * 360 / 7
             gems.append((crystal(tuple(polar(1.7, a)), 0.8 + 0.25 * (k % 3), 4.5 + 1.6 * (k % 4), lean=22 + 5 * (k % 2), yaw=a),
                          color.hsv(0, 0, 0.92 - 0.06 * (k % 3))))
-        self.heart = self.lamp(gems)
+        self.heart = self.lamp(gems, outline=0.07)
 
     def build_scatter(self):
         """Small crystals, stones and glowing mushrooms on the floor. Nothing here gets in anyone's way."""
@@ -306,16 +335,22 @@ class Cave(Arena):
                 rock.append((ball(rng.uniform(0.3, 0.9), tuple(at + Vec3(0, 0.12, 0)), rings=3, sides=6, squash=0.6),
                              ROCK_PALE if kind < 0.65 else ROCK_ALT))
             else:
-                hue = rng.choice((185, 300, 130))
+                hue = rng.choice((185, 300, 42))
                 rock.append((box((0.1, 0.4, 0.1), tuple(at + Vec3(0, 0.2, 0))), ROCK_PALE))
                 gems.append((ball(0.28, tuple(at + Vec3(0, 0.45, 0)), rings=3, sides=6, squash=0.5), crystal_colour(hue)))
-        self.lamp(gems)
+        self.lamp(gems, outline=0.03)
         self.piece(rock, outline=0.04)
 
     def animate(self, dt):
         now = time.time()
-        self.light_gates(color.hsv(gate_hue(now), 0.5, 1))
-        self.heart.color = color.hsv(gate_hue(now * 0.3), 0.5, 1)     # round the colours, never green
+        gate = gate_hue(now)
+        self.light_gates(color.hsv(gate, 0.5, 1))
+        heart = gate_hue(now * 0.3)
+        self.heart.color = color.hsv(heart, 0.5, 1)     # round the colours, never green
+        # the light they throw changes with them
+        self.lamps.tint(SPIRES, hsv_to_rgb(heart / 360, 0.5, 1))
+        for k in range(len(ARCHES)):
+            self.lamps.tint(SPIRES + 1 + k, (1, 1, 1) if self.gate_flash > 0 else hsv_to_rgb(gate / 360, 0.5, 1))
         throb = color.hsv(0, 0, 0.8 + 0.2 * sin(now * 8))
         for pool in self.pools:
             pool.color = throb

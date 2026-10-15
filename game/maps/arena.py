@@ -9,10 +9,12 @@ game/maps/__init__.py.
 from collections import namedtuple
 from math import atan2, cos, degrees, pi, radians, sin, sqrt, tan
 
-from ursina import Entity, Mesh, MeshCollider, Vec3, color, time
+from ursina import Entity, Mesh, MeshCollider, Vec2, Vec3, Vec4, color, scene, time
 
 from data import tuning as T
-from fx.toon import barrel, build, fan, placed, shade, solid
+from fx import shaders
+from fx.textures import tile
+from fx.toon import bake, barrel, build, fan, placed, shade, solid
 
 OUTLINE = 0.08
 
@@ -101,10 +103,10 @@ def ball(radius, at, rings=6, sides=12, squash=1.0):
     return solid(faces)
 
 
-def glow(parts, depth=0.3):
-    """One mesh of (shape, colour) pairs that seems lit from inside: no outline, and faces turned
-    from the light lose only `depth` of their colour. For the sun, for crystals, for anything
-    that shines."""
+def glow(parts, depth=0.3, outline=0.0):
+    """One mesh of (shape, colour) pairs that seems lit from inside: faces turned from the light
+    lose only `depth` of their colour. For the sun, for crystals, for anything that shines. With
+    an `outline` it sits in a dark rim like everything else; without, it has none."""
     vertices, colours = [], []
     for faces, colour in parts:
         for corners, normal in faces:
@@ -112,6 +114,28 @@ def glow(parts, depth=0.3):
             triangles = fan(corners)
             vertices += triangles
             colours += [(colour[0] * s, colour[1] * s, colour[2] * s, 1)] * len(triangles)
+    if outline:
+        rim, ink = bake(parts, outline, keep=lambda normal: False)
+        vertices += rim
+        colours += ink
+    return Mesh(vertices=vertices, colors=colours, mode='triangle', static=True)
+
+
+def sky_dome(bands, radius=380.0, sides=24):
+    """A dome of colour behind everything: flat bands, each from its elevation (degrees above the
+    horizon) up to the next, the last up to the top. `bands` is [(elevation, rgb), ...]."""
+    def point(a, e):
+        e = radians(e)
+        return (sin(a) * cos(e) * radius, sin(e) * radius, cos(a) * cos(e) * radius)
+
+    vertices, colours = [], []
+    tops = [e for e, _ in bands[1:]] + [90]
+    for (low, rgb), high in zip(bands, tops):
+        for i in range(sides):
+            a0, a1 = 2 * pi * i / sides, 2 * pi * (i + 1) / sides
+            quad = [point(a0, low), point(a1, low), point(a1, high), point(a0, high)]
+            vertices += [quad[0], quad[1], quad[2], quad[0], quad[2], quad[3]]
+            colours += [(rgb[0], rgb[1], rgb[2], 1)] * 6
     return Mesh(vertices=vertices, colors=colours, mode='triangle', static=True)
 
 
@@ -147,6 +171,9 @@ class Arena(Entity):
     spawn_yaw = 90
     gate_half_width = 7
     gate_height = 6
+    FOG = None                  # (rgb, amount, near, far): far things step toward this colour
+    SKY_BANDS = ()              # [(elevation, rgb), ...]: a dome of colour behind it all, if any
+    PAD_LOOK = 'rocket'         # the pixels a pad throws up when it throws someone
 
     def __init__(self):
         super().__init__()
@@ -160,18 +187,82 @@ class Arena(Entity):
         self.vines = []         # the Vine each of them is the tip of, where they swing
         self.decks = []
         self.ramps = []
+        self.game = None        # set by the game once there are pixels to throw: see Session.load_map
+        self.ambient = []       # [{'rate', 'due', 'emit'}]: what drifts about the place, a pixel at a time
+        self.lamps = None       # the pools of light round what glows: see set_lamps
+        self.gate_flash = 0.0
+        self.squashing = {}     # a pad's visible part -> how squashed it still is
+        if self.SKY_BANDS:
+            dome = Entity(parent=self, model=sky_dome(self.SKY_BANDS), double_sided=True, ignore=True)
+            dome.setShaderInput('fog', Vec4(0, 0, 0, 0))
+
+    def apply_fog(self):
+        """Far things step toward this map's fog colour; enemies too, so it goes on the whole scene."""
+        if self.FOG is None:
+            scene.setShaderInput('fog', Vec4(0, 0, 0, 0))
+            return
+        rgb, amount, near, far = self.FOG
+        scene.setShaderInput('fog', Vec4(rgb[0], rgb[1], rgb[2], amount))
+        scene.setShaderInput('fog_range', Vec2(near, far))
+
+    def set_lamps(self, lamps):
+        """Pools of coloured light on everything of the map round what glows: [(position, rgb, radius)]."""
+        self.lamps = shaders.Lamps(self, lamps)
+
+    def every(self, rate, emit):
+        """Call `emit()` `rate` times a second, for as long as the map stands."""
+        self.ambient.append({'rate': rate, 'due': 1.0 / rate, 'emit': emit})
+
+    def breathe(self, dt):
+        if self.game is None or dt <= 0:
+            return
+        for source in self.ambient:
+            source['due'] -= dt
+            while source['due'] <= 0:
+                source['due'] += 1.0 / source['rate']
+                source['emit']()
+
+    def pad_used(self, player):
+        """A pad has just thrown the player: it squashes, and throws up a plume."""
+        pad = min(self.pads, key=lambda p: (p.x - player.x) ** 2 + (p.z - player.z) ** 2, default=None)
+        if pad is None or self.game is None:
+            return
+        at = Vec3(pad.x, pad.y + 0.4, pad.z)
+        pixels = self.game.pixels
+        pixels.scatter(at, self.PAD_LOOK, count=26, speed=3, size=0.14, life=0.8, gravity=6, up=9, spread=1.2)
+        pixels.ring(at, 3.5, self.PAD_LOOK)
+        for part in self.pad_parts(pad):
+            self.squashing[part] = 1.0
+
+    def pad_parts(self, pad):
+        """What is seen of a pad, to squash when it is used."""
+        return []
+
+    def gate_used(self, player):
+        """The player boosted through a gate: the gates flash white, and it throws streamers."""
+        self.gate_flash = 0.15
+        if self.game is None or not self.gates:
+            return
+        centre, _ = min(self.gates, key=lambda g: (g[0].x - player.x) ** 2 + (g[0].z - player.z) ** 2)
+        for k in range(-3, 4):
+            at = centre + Vec3(0, self.gate_height - 0.3, 0) + (player.right * k * self.gate_half_width / 3.5)
+            self.game.pixels.scatter(at, 'rush', count=5, speed=3, size=0.09, life=0.8, gravity=7, up=1, spread=0.3)
 
     def block(self, **kwargs):
         """An invisible box that only collides."""
         return Entity(parent=self, collider='box', **kwargs)
 
-    def piece(self, parts, outline=OUTLINE, **kwargs):
-        """One baked mesh of (shape, colour) pairs, in world coordinates."""
-        return Entity(parent=self, model=build(parts, outline), **kwargs)
+    def piece(self, parts, outline=OUTLINE, pattern=None, **kwargs):
+        """One baked mesh of (shape, colour) pairs, in world coordinates. `pattern` is (tile, scale,
+        strength): a pixel-art tile from fx/textures.py laid over it by the shader."""
+        entity = Entity(parent=self, model=build(parts, outline), ignore=True, **kwargs)
+        if pattern is not None:
+            shaders.pattern(entity, tile(pattern[0]), pattern[1], pattern[2])
+        return entity
 
-    def lamp(self, parts, depth=0.3, **kwargs):
+    def lamp(self, parts, depth=0.3, outline=0.0, **kwargs):
         """One baked mesh that shines: see `glow`."""
-        return Entity(parent=self, model=glow(parts, depth), **kwargs)
+        return Entity(parent=self, model=glow(parts, depth, outline), ignore=True, **kwargs)
 
     # --- building blocks every map uses ---
 
@@ -294,7 +385,17 @@ class Arena(Entity):
                     # stirred a little by the air, and swinging on after whatever let go of it
                     stir = (T.VINE_STIR * sin(now * 0.9 + vine.phase), T.VINE_STIR * cos(now * 0.7 + vine.phase * 1.7))
                     vine.swing(min(dt, T.MAX_DT), T.VINE_STIFFNESS, T.VINE_DAMPING, stir)
+        self.gate_flash -= dt
+        for part in list(self.squashing):
+            left = self.squashing[part] - dt * 4
+            if left <= 0:
+                del self.squashing[part]
+                part.scale_y = 1
+            else:
+                self.squashing[part] = left
+                part.scale_y = 1 - 0.35 * sin(pi * left) * left       # down, up past rest, and settle
         self.animate(dt)
+        self.breathe(dt)
         if self.player is not None:
             self.check_gates()
 
@@ -302,6 +403,8 @@ class Arena(Entity):
         """Whatever moves in this map."""
 
     def light_gates(self, tint):
+        if self.gate_flash > 0:
+            tint = color.white          # one was just run through
         for _, parts in self.gates:
             for part in parts:
                 part.color = tint

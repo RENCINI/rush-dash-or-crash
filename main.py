@@ -63,6 +63,7 @@ class Session(Entity):
         self.was_overdrive = False
         self.sfx = Sfx(mute)
         self.map = MAPS['blender']()
+        self.map.apply_fog()
         window.color = self.map.sky
         self.player = Player(self.map.spawn_position, self.map.spawn_yaw)
         self.player.on_event = self.on_player_event
@@ -73,6 +74,7 @@ class Session(Entity):
         self.blasts = Blasts()
         self.arcs = Arcs()
         self.pixels = Pixels()
+        self.map.game = self        # the map's ambience and its pads throw pixels
         self.popups = Popups()
         self.enemies = Enemies(self)
         self.projectiles = self.enemies.markers     # what the katana may send back
@@ -113,6 +115,8 @@ class Session(Entity):
         destroy(self.map)
         self.map = MAPS[name]()
         self.map.player = self.player
+        self.map.game = self
+        self.map.apply_fog()
         window.color = self.map.sky
         self.player.spawn_position = Vec3(*self.map.spawn_position)
         self.player.spawn_yaw = self.map.spawn_yaw
@@ -221,6 +225,10 @@ class Session(Entity):
             return
         sound, volume, pitch = MOVE_SOUNDS[name]
         self.sfx.play(sound, volume, pitch)
+        if name == 'pad':
+            self.map.pad_used(self.player)
+        elif name == 'boost':
+            self.map.gate_used(self.player)
         if name == 'hurt':
             self.juice.shake(T.SHAKE_HURT)
             self.hud.hurt_flash(value)

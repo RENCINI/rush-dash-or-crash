@@ -12,15 +12,18 @@ scale) plus a few things the toon look needs, all doing nothing until asked.
 - `fog` (rgb, amount) and `fog_range` (near, far) fade far things toward the sky in steps.
 - `pattern` (scale, strength) with `pattern_tex` lays a small pixel-art tile over a surface, picked
   by which way the face looks, so meshes need no texture coordinates (fx/textures.py).
+- `lamps` (x, y, z, radius) and `lamp_tints` (rgb), `lamp_count` of them: pools of coloured light
+  in two hard rings round something that glows, on whatever is near it (`Lamps`).
 
 Shader inputs set on a node reach everything under it, unless something under it sets its own.
 Ursina writes a shader's `default_input` onto every entity, so these are left out of it and set
 once on the roots instead (`install`); an enemy or a map sets them on its own root to change them.
 """
-from panda3d.core import SamplerState, Texture as PandaTexture
+from panda3d.core import LVecBase4f, PTA_LVecBase4f, SamplerState, Texture as PandaTexture
 from ursina import Entity, Shader, Vec2, Vec4, camera, scene
 
 INK = 0.1       # vertices this dark are outline, which no tint or flash touches
+LAMPS = 16      # the most pools of light one node can have
 
 toon_shader = Shader(name='toon_shader', language=Shader.GLSL, vertex='''#version 140
 uniform mat4 p3d_ModelViewProjectionMatrix;
@@ -55,6 +58,9 @@ uniform vec4 fog;
 uniform vec2 fog_range;
 uniform sampler2D pattern_tex;
 uniform vec2 pattern;
+uniform vec4 lamps[''' + str(LAMPS) + '''];
+uniform vec4 lamp_tints[''' + str(LAMPS) + '''];
+uniform float lamp_count;
 in vec2 uvs;
 in vec4 vertex_color;
 in vec3 world_position;
@@ -73,6 +79,15 @@ void main() {
         colour.rgb *= 1.0 + (tile - 0.5) * 2.0 * pattern.y;
     }
     if (own > ''' + str(INK) + ''') {
+        float lit = dot(colour.rgb, LUMA);
+        for (int i = 0; i < ''' + str(LAMPS) + '''; i++) {
+            if (float(i) >= lamp_count) {
+                break;
+            }
+            float d = distance(world_position, lamps[i].xyz);
+            float band = d < lamps[i].w * 0.45 ? 0.36 : (d < lamps[i].w ? 0.17 : 0.0);
+            colour.rgb = mix(colour.rgb, lamp_tints[i].rgb * (0.45 + 0.7 * lit), band);
+        }
         vec3 v = vertex_color.rgb;
         if (neon > 0.0 && v.g > 0.5 && v.g > v.r * 2.2 && v.g > v.b * 1.8) {
             colour.rgb = mix(colour.rgb, vec3(0.85, 1.0, 0.85), neon);
@@ -124,6 +139,33 @@ def neutral(node):
     node.setShaderInput('fog_range', Vec2(0, 1))
     node.setShaderInput('pattern_tex', blank_pattern())
     node.setShaderInput('pattern', Vec2(0, 0))
+    node.setShaderInput('lamps', PTA_LVecBase4f.empty_array(LAMPS))
+    node.setShaderInput('lamp_tints', PTA_LVecBase4f.empty_array(LAMPS))
+    node.setShaderInput('lamp_count', 0.0)
+
+
+def pattern(node, texture, scale, strength):
+    """Lay a tile from fx/textures.py over everything under `node`: one tile every 1/scale metres."""
+    node.setShaderInput('pattern_tex', texture._texture)
+    node.setShaderInput('pattern', Vec2(scale, strength))
+
+
+class Lamps:
+    """The pools of light under one node: up to LAMPS of them, each (position, rgb, radius). Any
+    one can be recoloured every frame without anything being set again."""
+
+    def __init__(self, node, lamps):
+        self.where = PTA_LVecBase4f.empty_array(LAMPS)
+        self.tints = PTA_LVecBase4f.empty_array(LAMPS)
+        for i, (position, tint, radius) in enumerate(lamps[:LAMPS]):
+            self.where[i] = LVecBase4f(position[0], position[1], position[2], radius)
+            self.tints[i] = LVecBase4f(tint[0], tint[1], tint[2], 1)
+        node.setShaderInput('lamps', self.where)
+        node.setShaderInput('lamp_tints', self.tints)
+        node.setShaderInput('lamp_count', float(min(len(lamps), LAMPS)))
+
+    def tint(self, i, rgb):
+        self.tints[i] = LVecBase4f(rgb[0], rgb[1], rgb[2], 1)
 
 
 def install():

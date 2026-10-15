@@ -2586,6 +2586,33 @@ check('a shot flashes an outlined star of its own shape and steps it, throws a c
       f'flash (on, core, shape)={flash} second frame (core, stepped)={stepped} cases={len(cases)} lying={fallen} '
       f'arcs={arcing}')
 
+dressed = {}
+for name in ('blender', 'jungle', 'cave'):
+    s.load_map(name)
+    clear_enemies()
+    world = s.map
+    patterned = sum(1 for child in world.children if child.getShaderInput('pattern').getVector()[1] > 0)
+    fog = tuple(round(v, 2) for v in scene.getShaderInput('fog').getVector())
+    lit = world.getShaderInput('lamp_count').getVector()[0]
+    before = s.pixels.cursor
+    run(1.0)
+    drifting = (s.pixels.cursor - before) % fxpixels.POOL      # pixels thrown in that second
+    pad = world.pads[0]
+    place(Vec3(pad.x, 0.5, pad.z))
+    parts = world.pad_parts(pad)
+    world.pad_used(p)
+    squashed = all(part in world.squashing for part in parts)
+    world.gate_used(p)
+    flashed = world.gate_flash > 0
+    run(0.6)
+    settled = not world.squashing and all(part.scale_y == 1 for part in parts)
+    dressed[name] = (patterned, fog[3] > 0, lit, drifting > 0, squashed, flashed, settled)
+s.load_map('blender')
+check('every map is dressed: patterned floors and walls, fog, pools of light, things drifting about; pads squash '
+      'and gates flash', all(n >= 2 and fogged and lit > 0 and drifts and squash and flash and still
+                             for n, fogged, lit, drifts, squash, flash, still in dressed.values()),
+      f'(patterned pieces, fog, lamps, ambient, pad squash, gate flash, settled)={dressed}')
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from palette import offenders
 

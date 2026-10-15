@@ -1,5 +1,5 @@
 from math import atan2, cos, degrees, pi, radians, sin, sqrt, tan
-from random import Random
+from random import Random, uniform
 
 import numpy as np
 from ursina import Entity, Mesh, MeshCollider, Vec3, color, time
@@ -63,6 +63,14 @@ PAD = color.hsv(28, 0.72, 0.98)
 ARM = color.hsv(355, 0.65, 0.94)
 PLANET = color.hsv(205, 0.6, 0.95)
 MOON = color.hsv(40, 0.12, 0.9)
+CORE = (1.0, 0.5, 0.36)
+# the hull is painted in eight sectors, each its own colour, round the deck: a way to tell where you are
+SECTOR_HUES = (8, 30, 48, 186, 210, 250, 285, 325)
+
+
+def sector(i):
+    """The hue of wall segment `i`'s sector."""
+    return SECTOR_HUES[i * len(SECTOR_HUES) // WALL_SEGMENTS]
 
 
 def roof_height(radius):
@@ -95,7 +103,7 @@ def roof_collider(segments=WALL_SEGMENTS):
 
 
 def starfield(count=340, radius=420, seed=7):
-    """Diamond stars on a far dome, as one mesh."""
+    """Diamond stars on a far dome, as one mesh. Three of these, each seeded apart, twinkle out of step."""
     rng = Random(seed)
     vertices, colours = [], []
     for _ in range(count):
@@ -126,6 +134,10 @@ class Blender(Arena):
     name = 'blender'
     title = 'THE SHIP'
     radius = ARENA_RADIUS
+    FOG = ((0.14, 0.15, 0.3), 0.3, 40, 125)
+    SKY_BANDS = ((-15, (0.06, 0.05, 0.14)), (6, (0.1, 0.07, 0.22)), (22, (0.17, 0.09, 0.32)), (42, (0.13, 0.08, 0.27)),
+                 (66, (0.08, 0.06, 0.19)))
+    PAD_LOOK = 'rocket'
     spawn_position = polar(GATE_RADIUS, 0)
     spawn_yaw = 90
 
@@ -148,6 +160,25 @@ class Blender(Arena):
         self.build_tanks_and_pads()
         self.build_gates()
         self.build_centre()
+        # pools of light: red round the reactor, orange round each thruster pad
+        self.set_lamps([((0, 1.5, 0), CORE, 13)]
+                       + [(polar(PAD_RADIUS, 45 + q * 90, 0.3), (1.0, 0.56, 0.2), 7) for q in range(4)])
+        for quarter in range(4):
+            angle = 45 + quarter * 90
+            self.every(1.4, lambda at=polar(PILLAR_RADIUS, angle, 10.3): self.vent(at))
+            self.every(5, lambda at=polar(PAD_RADIUS, angle, 0.4): self.trickle(at))
+
+    def vent(self, at):
+        """A coolant tank lets off a puff of steam."""
+        self.game.pixels.scatter(at, 'steam', count=3, speed=1.2, size=0.14, life=1.4, gravity=-1.2, up=1.6, spread=0.6)
+
+    def trickle(self, at):
+        """Sparks rise off a thruster pad that is warm and waiting."""
+        self.game.pixels.emit(at + Vec3(uniform(-1.4, 1.4), 0, uniform(-1.4, 1.4)), (0, uniform(1.5, 3.5), 0), 'rocket',
+                              0.07, 0.5, 2, 7, gravity=-1, drag=1)
+
+    def pad_parts(self, pad):
+        return [self.pad_lights[self.pads.index(pad)]] if pad in self.pads else []
 
     def build_deck_and_hull(self):
         size = ARENA_RADIUS * 2 + 6
@@ -160,9 +191,10 @@ class Blender(Arena):
         for i in range(WALL_SEGMENTS):
             a0, a1 = (i - 0.5) * step, (i + 0.5) * step
             odd = i % 2
+            hue = sector(i)
             deck += [
                 (wedge(8, lane_in, a0, a1, -1, 0), DECK if odd else DECK_ALT),
-                (wedge(lane_in, lane_out, a0, a1, -1, 0), LANE if odd else LANE_ALT),
+                (wedge(lane_in, lane_out, a0, a1, -1, 0), color.hsv(hue, 0.28, 0.6 if odd else 0.66)),
                 (wedge(lane_out, RAMP_START, a0, a1, -1, 0), DECK_ALT if odd else DECK),
                 (wedge(RAMP_START, rim, a0, a1, -1, 0), DECK if odd else DECK_ALT),
             ]
@@ -172,7 +204,7 @@ class Blender(Arena):
                           (wedge(lane_out - 0.2, lane_out + 0.2, a0, a1, 0, 0.03), TRIM)]
             else:
                 marks.append((wedge(RAMP_START - 0.15, RAMP_START + 0.15, a0, a1, 0, 0.03), DARK))
-        self.piece(deck, outline=0)
+        self.piece(deck, outline=0, pattern=('plate', 0.5, 0.13))
         self.piece(marks, outline=0)
 
         centre_radius = ARENA_RADIUS + 0.5
@@ -189,9 +221,10 @@ class Blender(Arena):
                 # panel space: x across, y up, z outward; the wall's inner face is at z = -0.5
                 hull.append((placed(shape, polar(centre_radius, angle), yaw=angle), colour))
 
+            band = color.hsv(sector(i), 0.5, 0.66)     # each sector's colour runs along the hull
             put(box((width, WALL_HEIGHT, 1), (0, WALL_HEIGHT / 2, 0)), HULL if i % 2 else HULL_ALT)
-            put(box((width, 1.2, 1.3), (0, 0.6, -0.05)), PANEL)                     # skirting
-            put(box((width, 1.6, 1.3), (0, WALL_HEIGHT - 2.2, -0.05)), PANEL)
+            put(box((width, 1.2, 1.3), (0, 0.6, -0.05)), band)                      # skirting
+            put(box((width, 1.6, 1.3), (0, WALL_HEIGHT - 2.2, -0.05)), band)
             put(box((width, 0.8, 2.2), (0, WALL_HEIGHT + 0.4, -0.4)), HULL_ALT)     # roof rail
             hull.append((placed(box((0.7, WALL_HEIGHT, 0.5), (0, WALL_HEIGHT / 2, 0)),
                                 polar(ARENA_RADIUS, angle + step / 2), yaw=angle + step / 2), PANEL))    # rib
@@ -210,7 +243,7 @@ class Blender(Arena):
                 self.build_door(angle, put)
             else:
                 put(box((width - 1.4, 0.5, 0.3), (0, 5.2, -0.5)), TRIM)             # hazard band
-        self.piece(hull)
+        self.piece(hull, pattern=('panel', 0.33, 0.1))
 
     def build_door(self, angle, put):
         """An airlock set into one panel of the hull: a frame baked into the wall, and two leaves
@@ -286,7 +319,8 @@ class Blender(Arena):
         glass.setTransparency(True)
         ceiling = Entity(parent=self)
         ceiling.collider = MeshCollider(ceiling, mesh=roof_collider())
-        Entity(parent=self, model=starfield(), double_sided=True)
+        self.stars = [Entity(parent=self, model=starfield(count=120, seed=7 + k), double_sided=True, ignore=True)
+                      for k in range(3)]
         self.piece([(ball(70, (-170, 150, 240)), PLANET), (ball(13, (-40, 215, 200)), MOON)], outline=1.6)
 
     def build_catwalks(self):
@@ -376,9 +410,10 @@ class Blender(Arena):
         self.piece([
             (box((HUB_SIZE, 2, HUB_SIZE), (0, 1, 0)), PANEL),
             (box((HUB_SIZE + 0.1, 0.3, HUB_SIZE + 0.1), (0, 1.5, 0)), TRIM),
-            (drum(0.9, 2, 2.5), GLASS),
             (drum(0.5, 2.5, 3.2), TRIM),
         ])
+        # the reactor's core, glowing behind its glass, pulsing in steps
+        self.core = self.lamp([(drum(0.9, 2, 2.5, sides=10), (1, 1, 1))], depth=0.15, outline=0.04)
         # the arm spins, so it is built around its own pivot
         height = BAR_TOP - 0.15
         middle = BAR_TOP / 2 + 0.1
@@ -393,6 +428,10 @@ class Blender(Arena):
     def animate(self, dt):
         self.bar.rotation_y += BAR_SPIN * dt
         now = time.time()
+        beat = 1.0 if sin(now * 6) > 0.3 else 0.8
+        self.core.color = color.Color(CORE[0] * beat + 0.1, CORE[1] * beat + 0.1, CORE[2] * beat + 0.1, 1)
+        for k, stars in enumerate(self.stars):
+            stars.color = color.hsv(0, 0, 1.0 if sin(now * (1.3 + 0.4 * k) + k * 2.1) > -0.3 else 0.55)
         pulse = color.hsv(0, 0, 0.82 + 0.18 * sin(now * 8))
         for light in self.pad_lights:
             light.color = pulse

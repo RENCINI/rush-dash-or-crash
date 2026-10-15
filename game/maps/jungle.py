@@ -4,6 +4,7 @@ from random import Random
 from ursina import Entity, Vec3, color, time
 
 from fx.toon import box, build, placed, solid
+from fx.toon import ball as rounded      # a ball that can be squashed each way, or only its top half
 from game.maps.arena import Arena, ball, drum, gate_hue, polar, wedge
 
 RADIUS = 60
@@ -81,6 +82,9 @@ class Jungle(Arena):
     radius = RADIUS
     sky = SKY
     DUST = 'leaf'
+    FOG = ((0.62, 0.82, 0.95), 0.22, 45, 130)
+    SKY_BANDS = ((-15, (0.56, 0.8, 0.93)), (8, (0.64, 0.86, 0.98)), (26, (0.53, 0.78, 0.97)), (52, (0.43, 0.7, 0.96)))
+    PAD_LOOK = 'spore'
     spawn_position = polar(ARCH_RADIUS, 0)
     spawn_yaw = 90
 
@@ -100,23 +104,45 @@ class Jungle(Arena):
         self.build_arches()
         self.build_idol()
         self.build_plants()
+        self.set_lamps([((0, 0, 0), (1.0, 0.93, 0.62), 30)])       # the sun, through the hole in the leaves
+        rng = self.rng
+        self.every(14, lambda: self.firefly(rng))
+        self.every(5, lambda: self.leaf_falls(rng))
+
+    def firefly(self, rng):
+        """A firefly drifting over the clearing for a few seconds."""
+        r, a = rng.uniform(9, 56), rng.uniform(0, 360)
+        at = polar(r, a, rng.uniform(0.8, 6))
+        self.game.pixels.emit(at, (rng.uniform(-0.6, 0.6), rng.uniform(-0.2, 0.4), rng.uniform(-0.6, 0.6)), 'gold',
+                              0.06, rng.uniform(2, 3.5), 0, 4, gravity=0, drag=0.2)
+
+    def leaf_falls(self, rng):
+        """A leaf comes down from the canopy, drifting."""
+        r = rng.uniform(CANOPY_OPEN, RADIUS - 2)
+        at = polar(r, rng.uniform(0, 360), canopy_height(r) - 0.6)
+        self.game.pixels.emit(at, (rng.uniform(-1, 1), -0.6, rng.uniform(-1, 1)), 'leaf', 0.1, 6.0, 1, 4,
+                              gravity=0.35, drag=1.2)
+
+    def pad_parts(self, pad):
+        return [self.caps[self.pads.index(pad)]] if pad in self.pads else []
 
     def build_ground(self):
         step = 360 / self.wall_segments
         rim = RADIUS + 3
-        ground, water = [], []
+        ground, track, water = [], [], []
         for i in range(self.wall_segments):
             a0, a1 = (i - 0.5) * step, (i + 0.5) * step
             odd = i % 2
+            track.append((wedge(PATH[0], PATH[1], a0, a1, -1, 0), DIRT if odd else DIRT_ALT))
             ground += [
                 (wedge(POND, PATH[0], a0, a1, -1, 0), GRASS if odd else GRASS_ALT),
-                (wedge(PATH[0], PATH[1], a0, a1, -1, 0), DIRT if odd else DIRT_ALT),
                 (wedge(PATH[1], RAMP_START + 6, a0, a1, -1, 0), GRASS_ALT if odd else GRASS),
                 (wedge(RAMP_START + 6, rim, a0, a1, -1, 0), MOSS if odd else GRASS),
                 (wedge(POND, POND + 0.9, a0, a1, 0, 0.12), STONE if odd else ROCK),      # the pond's kerb
             ]
             water.append((wedge(POND * 0.45, POND, a0, a1, -1, 0.04), WATER if odd else WATER_ALT))
-        self.piece(ground, outline=0)
+        self.piece(ground, outline=0, pattern=('grass', 0.45, 0.12))
+        self.piece(track, outline=0, pattern=('dirt', 0.5, 0.14))
         water.append((drum(POND * 0.45, -1, 0.04, sides=self.wall_segments), WATER_ALT))
         self.piece(water, outline=0)
 
@@ -158,7 +184,7 @@ class Jungle(Arena):
                                        (ball(0.8, (2.7, 0.55, 0.2), rings=3, sides=6, squash=0.8), LEAF_ALT),
                                        (ball(0.6, (-1.7, 0.4, -0.5), rings=3, sides=6, squash=0.8), LEAF_ALT)], 0.06))
             entry['bush'] = bush
-        self.piece(rock)
+        self.piece(rock, pattern=('strata', 0.22, 0.14))
         self.piece(trees)
 
     def build_canopy_and_sky(self):
@@ -171,7 +197,19 @@ class Jungle(Arena):
             ragged = CANOPY_OPEN + (0, 5, 2, 8, 3, 6)[i % 6]
             leaves += [(canopy_plate(ragged, 50, a0, a1), LEAF_DARK if i % 2 else LEAF),
                        (canopy_plate(50, RADIUS + 7, a0, a1, 1.2), LEAF if i % 2 else LEAF_DARK)]
-        self.piece(leaves, outline=0, double_sided=True)
+        self.piece(leaves, outline=0, double_sided=True, pattern=('leaves', 0.25, 0.14))
+        # clumps hanging along the ragged edge, so the leaves end in shapes, not in a line
+        rng = self.rng
+        clumps = []
+        for i in range(self.wall_segments):
+            ragged = CANOPY_OPEN + (0, 5, 2, 8, 3, 6)[i % 6]
+            a = (i + 0.5) * step
+            for k in range(2):
+                r = ragged + rng.uniform(0.5, 3)
+                at = polar(r, a + rng.uniform(-3, 3), canopy_height(r) - rng.uniform(0.3, 1.2))
+                clumps.append((ball(rng.uniform(1.3, 2.4), tuple(at), rings=3, sides=6, squash=0.55),
+                               (LEAF, LEAF_ALT, LEAF_DARK)[(i + k) % 3]))
+        self.piece(clumps, outline=0.06)
         sky = [(ball(26, (-120, 230, 160), rings=5, sides=10), SUN)]
         for x, y, z, size in ((90, 150, 200, 22), (-40, 170, -210, 28), (210, 140, -40, 18), (-230, 135, 30, 24)):
             sky += [(ball(size, (x, y, z), rings=4, sides=8, squash=0.45), CLOUD),
@@ -218,8 +256,11 @@ class Jungle(Arena):
             self.perches.append(foot + Vec3(0, CROWN_HEIGHT, 0))
             parts += [(drum(TRUNK + 0.9, 0, 1.6, foot, top=TRUNK), BARK_ALT),                    # roots
                       (drum(TRUNK, 1.6, CROWN_HEIGHT - 2, foot, top=TRUNK * 0.8), BARK),
-                      (placed(box((8.6, 2.6, 8.6), (0, CROWN_HEIGHT - 1.3, 0)), foot, yaw=angle), LEAF if i % 2 else LEAF_ALT),
-                      (placed(box((10.4, 1.3, 10.4), (0, CROWN_HEIGHT - 2.2, 0)), foot, yaw=angle + 45), LEAF_DARK)]
+                      # a domed crown, flat enough on top to stand on, over a darker underside
+                      (rounded(5.4, tuple(foot + Vec3(0, CROWN_HEIGHT - 2.27, 0)), squash=(1, 0.42, 1), rings=6, sides=9,
+                               dome=True), LEAF if i % 2 else LEAF_ALT),
+                      (rounded(4.6, tuple(foot + Vec3(0, CROWN_HEIGHT - 2.4, 0)), squash=(1, 0.32, 1), rings=4, sides=8),
+                       LEAF_DARK)]
             # vines hanging from the crown
             for k in range(4):
                 a = angle + 45 + k * 90
