@@ -8,7 +8,7 @@ from math import cos, pi, sin
 from random import uniform
 
 from panda3d.core import Point2, Point3
-from ursina import Entity, Vec3, camera, color, scene, time
+from ursina import Entity, Vec3, camera, color, scene
 
 from data import tuning as T
 from fx.toon import build, plate

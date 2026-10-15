@@ -5,7 +5,7 @@ kill points, style points, the best chain and the time. The points are added up,
 chain comes down on them as a multiplier, with flames and a shake, and the final score rolls up
 under it and slams down. A click skips to the end; another goes on to the shop. The match is
 frozen underneath, so all of this runs on real time."""
-from math import pi, sin
+from math import sin
 from random import uniform
 
 from ursina import Entity, Vec3, camera, color, time

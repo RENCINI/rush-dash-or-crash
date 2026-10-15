@@ -5,7 +5,7 @@ match; its numbers and its tree are its branch's in data/trees.py, read through 
 `VARIANTS` maps (slot, branch id) to the class, for Arsenal.equip.
 """
 from math import cos, radians, sin
-from random import choice, uniform
+from random import uniform
 
 from ursina import Entity, Vec3, camera, color, destroy, raycast
 
@@ -15,7 +15,6 @@ from game import mods
 from game.weapons import (BOOMER_SIZE, CREAM, DARK, METAL, WOOD, Boomer, Buzzer, Longshot, Popper, Scatter, bolts,
                           both, grip, groove, marks, rocket_model, spread)
 
-FLAMES = ((1, 0.92, 0.35, 1), (1, 0.6, 0.12, 1), (1, 0.3, 0.06, 1))
 ARC = color.hsv(190, 0.35, 1)
 HEALTH = color.hsv(160, 0.45, 1)
 

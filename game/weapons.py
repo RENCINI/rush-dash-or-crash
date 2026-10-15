@@ -1,4 +1,4 @@
-from math import cos, exp, pi, sin
+from math import exp, pi, sin
 from random import choice, uniform
 
 from ursina import Entity, Vec3, camera, clamp, color, destroy, held_keys, mouse, raycast, time
