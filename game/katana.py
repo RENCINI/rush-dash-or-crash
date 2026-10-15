@@ -18,6 +18,7 @@ from data import tuning as T
 from data.controls import pressed
 from fx.toon import barrel, box, build, slab
 from game.body import arm, stripe
+from game.weapons import hit_pitch
 
 STEEL = color.hsv(205, 0.1, 0.93)
 EDGE = color.hsv(190, 0.08, 1)
@@ -162,7 +163,7 @@ class Katana(Entity):
         killed = game.enemies.damage(enemy, amount, (away.x * knock, 4, away.z * knock))
         game.on_hit(enemy, amount, point, killed)
         game.hud.hit_marker(killed)
-        game.sfx.play('hit', volume=0.8, pitch=0.7)
+        game.sfx.play('hit', volume=0.8, pitch=hit_pitch(amount) * 0.85)
         if green:
             self.parried(point)
 

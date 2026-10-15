@@ -567,6 +567,11 @@ class Longshot(Weapon):
 SLOTS = (Popper, Scatter, Boomer, Buzzer, Longshot)
 
 
+def hit_pitch(damage):
+    """The hit tick is higher the more a hit did."""
+    return 0.75 + min(damage / 120, 0.65)
+
+
 class Arsenal(Entity):
     """Holds the weapons, fires them, and owns the bullets and rockets in the air."""
 
@@ -891,15 +896,17 @@ class Arsenal(Entity):
         game = self.game
         multiplier = game.player.rush.damage_multiplier
         hits = []
+        dealt = 0.0
         for enemy, (damage, direction, point) in list(self.pending.items()):
             amount = damage * multiplier
+            dealt += amount
             killed = game.enemies.damage(enemy, amount, (direction[0] * push, 2.5, direction[2] * push))
             game.on_hit(enemy, amount, point, killed)
             hits.append((point, killed))
         self.pending.clear()
         if hits:
             game.hud.hit_marker(any(killed for _, killed in hits))
-            game.sfx.play('hit', volume=0.7, pitch=0.8 + 0.5 * game.player.rush.fraction)
+            game.sfx.play('hit', volume=0.7, pitch=hit_pitch(dealt))
         return hits
 
     def show_tracer(self, start, end, colour, width=TRACER_WIDTH, life=TRACER_TIME, slug=None):

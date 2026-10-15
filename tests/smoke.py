@@ -899,6 +899,23 @@ check('five rounds, throwers from the third', plans == [(10, 0, 2, 0), (14, 0, 3
 
 won = director.state
 run(T.LEVEL_WON_PAUSE + 0.2)
+tally = s.tally
+tallied = (tally.is_open, s.shop.is_open, main.application.paused)
+counted = []
+for _ in range(900):            # it runs on real time, which the test's clock also steps
+    app.step()
+    counted.append(tally.step)
+    if tally.done:
+        break
+stats = tally.stats
+expected = round((stats['base'] + stats['style']) * (1 + T.TALLY_CHAIN_STEP * stats['best']))
+lines = [label.text for label in tally.values]
+tally.input('left mouse down')
+check('a level ends on its tally: each line counts up in turn, the best chain multiplies them, then the shop',
+      tallied == (True, False, True) and tally.done and counted == sorted(counted) and tally.score == expected
+      and tally.final.text == f'{expected:,}' and stats['kills'] > 50 and all(lines) and not tally.is_open
+      and s.shop.is_open, f'opened (tally, shop, paused)={tallied} lines={lines} (kills, points, style, best)='
+      f"{(stats['kills'], stats['base'], stats['style'], stats['best'])} score={tally.score} expected={expected}")
 saved = Progress(progress.path)
 check('level clear opens the shop', won == 'won' and s.shop.is_open and main.application.paused and not mouse.locked
       and progress.cleared == 1 and director.state == 'idle',
@@ -1018,6 +1035,8 @@ for _ in range(3000):
     wipe()
 again = (director.state, progress.cleared, director.level)
 run(T.LEVEL_WON_PAUSE + 0.2)
+s.tally.input('space')          # straight to the end of the count...
+s.tally.input('space')          # ...and on to the shop
 click(shop.GO_X, shop.ROW_GO)
 menu.open()
 for _ in LEVELS[1:]:                # round to endless again
@@ -2479,6 +2498,39 @@ arsenal.select(0, quiet=True)
 check('a rocket in the air when its branch is swapped in the shop goes quietly',
       flying == 1 and crashed is None and not any(r['live'] for r in arsenal.rockets),
       f'in the air before the swap={flying}, error={crashed}')
+
+clear_enemies()
+place(polar(26, 200), yaw=290)
+s.reset_chain()
+chain = s.chain
+tiers, pitches, music = [], [], []
+real_play = s.sfx.play
+s.sfx.play = lambda name, volume=1.0, pitch=1.0: (pitches.append(round(pitch, 2)) if name == 'kill' else None,
+                                                   real_play(name, volume, pitch))
+for n in range(5):
+    victim = frozen(20, 3 + n * 2)
+    enemies.damage(victim, 1e6)
+    tiers.append(chain.tier)
+    s.ticker.update()
+    music.append([round(target, 2) for target in s.sfx.music_target])
+s.sfx.play = real_play
+badge = (s.hud.score.badge.enabled, s.hud.score.multiplier.text)
+flying = sum(f['live'] for f in s.hud.score.flyers)
+run(2)
+landed = s.hud.score.score.text
+p.invulnerable = 0
+p.take_damage(5)
+after_hit = chain.tier
+run(T.CHAIN_WINDOW + 0.2)
+check('kills climb the chain: each pops a note higher, the badge slams, music joins, the points fly to the score',
+      tiers == [1, 2, 3, 4, 5] and pitches == sorted(pitches) and len(set(pitches)) == 5
+      and badge == (True, 'X5') and flying == 5 and landed == f'{chain.score:,}' and chain.score > 0
+      and music[0][:2] == [1.0, 0.0] and music[-1][:3] == [1.0, 1.0, 1.0] and music[-1][3] == 0.0,
+      f'tiers={tiers} kill pitches={pitches} badge={badge} flying={flying} score={landed} of {chain.score} '
+      f'music targets after 1 and 5 kills={music[0]}, {music[-1]}')
+check('a hit knocks the chain down two tiers; letting it lapse loses it and the badge goes',
+      after_hit == 3 and chain.tier == 0 and not s.hud.score.badge.enabled,
+      f'after a hit at x5: x{after_hit}; after {T.CHAIN_WINDOW} s: x{chain.tier}, badge={s.hud.score.badge.enabled}')
 
 effects_file = Path(scratch.name) / 'effects.json'
 saved_effects = Settings(effects_file)

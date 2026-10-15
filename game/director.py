@@ -24,6 +24,7 @@ class Director(Entity):
         self.changed = False    # the level to play was changed under a running match
         self.state = 'idle'     # 'intro', 'fight', 'clear', 'boss_intro', 'boss' or 'won'
         self.round = 0          # counted from 0
+        self.level_time = 0.0   # seconds played of this level, for its tally
         self.plan = LEVELS[0]
         self.rounds = self.plan.rounds
         self.queue = []         # what the round has still to send in: (kind, green, special)
@@ -89,6 +90,8 @@ class Director(Entity):
         self.boss = None
         self.beacon_used = False
         game.arsenal.restock()
+        game.reset_chain()
+        self.level_time = 0.0
         self.changed = False
         self.plan = LEVELS[(self.level - 1) % len(LEVELS)]
         self.rounds = self.plan.rounds
@@ -125,6 +128,7 @@ class Director(Entity):
             shuffle(self.queue)
         self.total = len(self.queue)
         self.heart_sent = False     # the runaway heart gets out once a round
+        self.game.chain.new_round()
         self.fight_time = 0.0
 
         self.state = 'intro'
@@ -176,6 +180,8 @@ class Director(Entity):
         dt = min(time.dt, T.MAX_DT)
         game = self.game
         self.timer -= dt
+        if self.state != 'won':
+            self.level_time += dt
         if self.state == 'intro':
             if self.timer <= 0:
                 self.state = 'fight'

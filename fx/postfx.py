@@ -80,7 +80,7 @@ void main() {
     }
     if (edge.a > 0.0) {
         float inside = 1.0 - max(abs(uv.x - 0.5), abs(uv.y - 0.5) * 1.0) * 2.0;
-        float band = inside < 0.035 ? 1.0 : inside < 0.08 ? 0.55 : inside < 0.13 ? 0.25 : 0.0;
+        float band = inside < 0.018 ? 1.0 : inside < 0.045 ? 0.55 : inside < 0.08 ? 0.22 : 0.0;
         colour = mix(colour, edge.rgb, band * edge.a);
     }
     colour = mix(colour, vec3(1.0), flash);
@@ -149,7 +149,7 @@ class PostFx(Entity):
             self.pulses[name] = [peak, seconds, seconds]
 
     def edge(self, colour, amount):
-        self.edge_colour = tuple(colour[:3])
+        self.edge_colour = (colour[0], colour[1], colour[2])
         self.set('edge_amount', amount)
 
     def now(self, name):

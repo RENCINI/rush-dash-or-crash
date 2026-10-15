@@ -11,6 +11,7 @@ from fx.pixels import Pixels
 from fx.toon import build, plate
 from ui.font import Label
 from ui.health import BossBar, HealthBar
+from ui.score import ScoreHud
 
 DIM = color.hsv(0, 0, 1, 0.18)
 INK = color.Color(0.08, 0.07, 0.15, 1)      # the outline colour the weapons use
@@ -503,14 +504,14 @@ class Hud(Entity):
         self.reload_fill = Entity(parent=self, model='quad', origin=(-0.5, 0), scale=(0.1, 0.006),
                                   position=(-0.05, -0.1, -0.01), enabled=False)
         self.reload_text = Label(parent=self, text='', origin=(0, 0), position=(0, -0.125), scale=0.8)
-        self.kills = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.45), scale=1.4)
-        self.tag = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.41), scale=1)
-        self.chips = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.365), scale=1.1, color=GOLD)
+        self.kills = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.322), scale=0.9)
+        self.tag = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.396), scale=1)
+        self.chips = Label(parent=self, text='', origin=(0.5, 0), position=(0.86, 0.359), scale=1.1, color=GOLD)
         self.shown_chips = -1
         self.chip_pop = 0.0
         # the level: where the player is in it, a banner as each round starts and ends,
         # and a line for news: a key picked up, an ally won or lost
-        self.round = Label(parent=self, text='', origin=(0, 0), position=(0, 0.375), scale=1.05)
+        self.round = Label(parent=self, text='', origin=(0, 0), position=(0, 0.35), scale=1.05)
         self.shown_round = ''
         self.title = Label(parent=self, text='', origin=(0, 0), position=(0, 0.275), scale=3.2, letters=True,
                            enabled=False)
@@ -524,6 +525,7 @@ class Hud(Entity):
         self.danger = None          # (how red, seconds left, the sniper) of the one closest to firing
         self.danger_time = 0.0
         self.help = Label(parent=self, origin=(-0.5, 0.5), position=(-0.86, 0.47), scale=0.62, text=help_text())
+        self.score = ScoreHud(self)     # the chain badge, the score and the points flying to it
 
     # --- events ---
 
@@ -641,6 +643,7 @@ class Hud(Entity):
         self.update_status(dt)
         self.update_level(dt)
         self.update_alarm(dt)
+        self.score.tick(dt)
 
     def update_alarm(self, dt):
         self.danger_time -= dt
@@ -842,7 +845,7 @@ class Hud(Entity):
             self.shown_kills = self.game.kills
             self.kills.text = f'KILLS {self.shown_kills}'
         self.kill_pop = max(0.0, self.kill_pop - dt * 5)
-        self.kills.scale = 1.4 * (1 + 0.35 * self.kill_pop)
+        self.kills.scale = 0.9 * (1 + 0.35 * self.kill_pop)
 
         if self.help.enabled and self.age > 15:
             self.help.enabled = False

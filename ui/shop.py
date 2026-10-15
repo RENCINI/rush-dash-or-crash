@@ -219,6 +219,7 @@ class Shop(Entity):
         self.opened = self.boot = 0.0
         self.shown_chips = float(self.game.progress.chips)
         self.screen.enabled = True
+        self.game.postfx.set('crt', 1.0)       # the arena behind is seen through the terminal's glass
         self.buttons['go']['text'].text = 'NEXT LEVEL' if after_level else 'BACK'
         self.say('')
         self.refresh()
@@ -226,6 +227,7 @@ class Shop(Entity):
     def close(self):
         self.is_open = False
         self.screen.enabled = False
+        self.game.postfx.set('crt', 0.0)
         self.game.shop_closed(self.after_level)
 
     def say(self, message, tint=ICE):

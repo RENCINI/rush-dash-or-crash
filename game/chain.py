@@ -5,7 +5,7 @@ window lapse drops it to nothing; being hit takes CHAIN_HURT_DROP tiers off. A k
 (SCORE_KILL x the enemy's worth + style bonuses) x chain x the Rush damage multiplier.
 
 This is only the arithmetic. `Session` in main.py turns what these methods return into sound,
-pixels and HUD (see `Session.on_kill`, `Session.chain_lost`).
+pixels and HUD (see `Session.on_kill` and `Session.chain_lost` in main.py, and ui/score.py).
 """
 from data import tuning as T
 
@@ -14,7 +14,11 @@ class Chain:
     def __init__(self):
         self.tier = 0           # 0 is no chain; the first kill makes it x1
         self.timer = 0.0        # time left to keep it going
-        self.score = 0          # this level so far
+        self.score = 0          # this level so far: its kill points and style points together
+        self.base_points = 0    # what the kills themselves were worth, chained and rushed
+        self.style_points = 0   # what the style bonuses added, chained and rushed
+        self.kills = 0          # this level
+        self.best = 0           # the highest tier reached this level
         self.round_score = 0
         self.round_kills = 0
         self.round_best = 0     # the highest tier reached this round
@@ -53,8 +57,14 @@ class Chain:
         else:
             self.multi = 0
         self.multi_timer = T.MULTI_WINDOW
-        points = round((worth + bonus) * self.tier * rush)
+        base = round(worth * self.tier * rush)
+        extra = round(bonus * self.tier * rush)
+        points = base + extra
         self.score += points
+        self.base_points += base
+        self.style_points += extra
+        self.kills += 1
+        self.best = max(self.best, self.tier)
         self.round_score += points
         self.round_kills += 1
         self.round_best = max(self.round_best, self.tier)
@@ -86,5 +96,7 @@ class Chain:
         """A level starting over: nothing carried."""
         self.tier = 0
         self.timer = 0.0
-        self.score = 0
+        self.score = self.base_points = self.style_points = self.kills = self.best = 0
+        self.multi = 0
+        self.multi_timer = 0.0
         self.new_round()

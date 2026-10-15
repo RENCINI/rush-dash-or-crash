@@ -200,7 +200,28 @@ def screens():
     s.director.start()
     run(240)
     shot('screen_hud')
+    for n in range(6):
+        x, z = ahead(10, -4 + n * 1.6)
+        enemies.damage(frozen('brawler', x, z, green=False), 1e9)
+        run(4)
+    shot('screen_chain')
+    run(60)
+    shot('screen_chain_landed')
     s.director.auto = False
+    s.open_shop()
+    run(150)
+    shot('screen_tally_counting')
+    for _ in range(600):
+        app.step()
+        if s.tally.done:
+            break
+    run(20)
+    shot('screen_tally_done')
+    s.tally.input('space')
+    run(60)
+    shot('screen_shop_after_level')
+    s.shop.close()
+    run(10)
     from ui.menus import Menu
     s.menu = Menu(s)
     s.menu.open()

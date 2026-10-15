@@ -23,6 +23,7 @@ from game.director import Director
 from game.enemies import Enemies
 from game.heart import RunawayHeart
 from game.beacon import Beacon
+from game.chain import Chain
 from game.katana import PARRY_GREEN, Katana
 from game.maps import MAPS
 from game.pickups import Pickups
@@ -30,7 +31,9 @@ from game.player import Player
 from game.weapons import Arsenal
 from ui.hud import GOLD, Hud, rush_colour
 from ui.menus import Menu
+from ui.score import tier_colour
 from ui.shop import Shop
+from ui.tally import Tally
 
 # player event -> (sound, volume, pitch)
 CHIP_STREAK = 0.6       # chips picked up this close together ring higher and higher
@@ -53,6 +56,7 @@ class Session(Entity):
         mods.use(self.progress)
         self.menu = None
         self.kills = 0
+        self.chain = Chain()
         self.chip_streak = 0
         self.chip_timer = 0.0
         self.was_overdrive = False
@@ -82,6 +86,10 @@ class Session(Entity):
         self.beacon = Beacon(self)
         self.director = Director(self)
         self.shop = Shop(self)
+        self.tally = Tally(self)
+        # the music fades on under the menus, when this entity's update is all that runs
+        self.ticker = Entity(ignore_paused=True)
+        self.ticker.update = self.tick_music
         self.apply_settings()
 
     def apply_settings(self):
@@ -136,9 +144,26 @@ class Session(Entity):
         self.director.changed = True
 
     def open_shop(self):
-        """A level was cleared: freeze the arena under the upgrade shop."""
+        """A level was cleared: freeze the arena under its tally, then the upgrade shop."""
         self.pause(True)
+        chain, director = self.chain, self.director
+        self.tally.open({'level': director.level, 'name': director.plan.name, 'kills': chain.kills,
+                         'base': chain.base_points, 'style': chain.style_points, 'best': chain.best,
+                         'time': director.level_time})
+
+    def tally_closed(self, score):
         self.shop.open(after_level=True)
+
+    def tick_music(self):
+        playing = self.director.running or self.tally.is_open or self.chain.tier > 0
+        self.sfx.set_music(self.chain.tier, playing=playing, duck=T.MUSIC_DUCK if application.paused else 1.0)
+        self.sfx.update_music(time.dt_unscaled)
+
+    def reset_chain(self):
+        """A level starting, or starting again: no chain, no score."""
+        self.chain.reset()
+        self.hud.score.reset()
+        self.postfx.edge((1, 1, 1), 0)
 
     def shop_closed(self, after_level):
         if after_level and self.menu is not None and self.progress.cleared == len(LEVELS) \
@@ -163,6 +188,9 @@ class Session(Entity):
 
     def update(self):
         self.chip_timer -= time.dt
+        lost = self.chain.update(time.dt)
+        if lost:
+            self.chain_lost(lost)
         if self.chip_timer <= 0:
             self.chip_streak = 0
         speed = self.player.speed
@@ -194,6 +222,11 @@ class Session(Entity):
         if name == 'hurt':
             self.juice.shake(T.SHAKE_HURT)
             self.hud.hurt_flash(value)
+            lost = self.chain.hurt()
+            if lost:
+                self.chain_lost(lost)
+            elif self.chain.tier:
+                self.chain_climbed(self.chain.tier, quiet=True)     # knocked down a step or two
         elif name == 'death':
             # dying costs the level: back to its first round, with everything earned kept
             self.kills = 0
@@ -281,13 +314,40 @@ class Session(Entity):
         self.rally(T.RALLY_KILL)
         self.drop(enemy)
         centre = enemy.centre
+        player, chain = self.player, self.chain
+        points, styles, climbed = chain.kill(chain.worth(enemy), player.rush.damage_multiplier,
+                                             airborne=not player.grounded, sliding=player.sliding)
+        tier = chain.tier
         self.particles.burst(centre, enemy.colour, count=46)
-        self.sfx.play('kill', pitch=uniform(0.96, 1.04))
-        self.juice.hitstop(T.HITSTOP_KILL)
-        self.juice.shake(T.SHAKE_KILL)
+        # each tier of the chain plays the kill a step further up the scale
+        self.sfx.play('kill', pitch=2 ** (T.CHAIN_SCALE[min(tier, len(T.CHAIN_SCALE) - 1)] / 12) * uniform(0.99, 1.01))
+        self.juice.hitstop(min(T.HITSTOP_KILL + tier * T.HITSTOP_KILL_TIER, T.HITSTOP_KILL_MAX))
+        self.juice.shake(T.SHAKE_KILL + tier * T.SHAKE_KILL_TIER)
+        self.postfx.pulse('aberration', 0.002 + 0.0004 * tier, 0.12)
+        self.hud.score.kill(centre + Vec3(0, 0.6, 0), points, styles)
+        if climbed:
+            self.chain_climbed(tier)
         if self.player.rush.overdrive:
             self.explode(centre, T.OVERDRIVE_KILL_BLAST_RADIUS, T.OVERDRIVE_KILL_BLAST_DAMAGE, enemy.colour,
                          quiet=True)
+
+    def chain_climbed(self, tier, quiet=False):
+        """The chain went up a tier (or, `quiet`, was knocked down to this one): the badge slams,
+        the edge of the screen glows a step brighter, and one more layer of music comes in."""
+        if not quiet:
+            self.sfx.play('tier', volume=0.7, pitch=1 + 0.04 * (tier - 1))
+            self.hud.score.chain_up(tier)
+        else:
+            self.hud.score.chain_up(tier)
+            self.hud.score.slam = 0.3
+        self.postfx.edge(tier_colour(tier), min(T.CHAIN_EDGE * tier, T.CHAIN_EDGE_MAX))
+
+    def chain_lost(self, tier):
+        """The chain broke: it deflates, the badge shatters and the colour drains for a moment."""
+        self.sfx.play('deflate', volume=0.4 + 0.06 * min(tier, 10))
+        self.hud.score.chain_lost()
+        self.postfx.pulse('saturation', 0.25, 0.4)
+        self.postfx.edge((1, 1, 1), 0)
 
     def explode(self, position, radius, damage, colour, player_knock=0.0, quiet=False, self_damage=0.0, throw=None,
                 lift=False, look=None):
