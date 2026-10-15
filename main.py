@@ -3,7 +3,6 @@ from pathlib import Path
 from random import uniform
 
 from ursina import Entity, Ursina, Vec3, application, clamp, destroy, mouse, time, window
-from ursina.shaders import unlit_shader
 
 from audio.mixer import Sfx
 from data import controls
@@ -16,6 +15,8 @@ from fx.juice import Juice
 from fx.particles import Particles
 from fx.pixels import Pixels
 from fx.popups import Popups
+from fx.postfx import PostFx
+from fx import shaders
 from game import mods
 from game.clouds import Clouds
 from game.director import Director
@@ -62,6 +63,7 @@ class Session(Entity):
         self.player.on_event = self.on_player_event
         self.map.player = self.player
         self.juice = Juice()
+        self.postfx = PostFx(self.settings.effects)
         self.particles = Particles()
         self.blasts = Blasts()
         self.pixels = Pixels()
@@ -86,6 +88,7 @@ class Session(Entity):
         """Push what was picked on the menu into the sound, the controls, the weapons and the HUD."""
         settings = self.settings
         self.sfx.volume = settings.volume
+        self.postfx.switch(settings.effects)
         controls.apply(settings.keys, settings.sensitivity)
         self.hud.show_controls()
         self.arsenal.repaint(settings.hue)
@@ -110,6 +113,7 @@ class Session(Entity):
         application.paused = paused
         mouse.locked = not paused
         self.hud.enabled = not paused
+        self.postfx.set('pause', 1.0 if paused else 0.0)
         if paused:
             self.progress.save()            # chips picked up since the last round ended
             application.time_scale = 1      # a hitstop can't end itself while frozen
@@ -170,6 +174,11 @@ class Session(Entity):
             self.sfx.set_hum(1 if overdrive else 0)
             if overdrive:
                 self.juice.shake(0.5)
+                self.postfx.pulse('flash', 0.35, 0.12)
+            self.postfx.set('saturation', T.OVERDRIVE_SATURATION if overdrive else 1.0)
+            self.postfx.set('aberration', T.OVERDRIVE_ABERRATION if overdrive else 0.0)
+        fast = clamp((speed - T.RUN_SPEED) / (T.FOV_FULL_SPEED - T.RUN_SPEED), 0, 1)
+        self.postfx.set('radial', T.SPEED_SMEAR * fast * (1.5 if overdrive else 1.0))
 
     # --- events ---
 
@@ -338,8 +347,8 @@ def build(mute=False, menu=False, settings=None, level=None, **kwargs):
     there are kept, but it does not count as cleared."""
     app = Ursina(title='RUSH', development_mode=False, **kwargs)
     application.asset_folder = Path(__file__).resolve().parent
-    # the default shader recomputes fog inputs for every entity every frame
-    Entity.default_shader = unlit_shader
+    # Ursina's default shader recomputes fog inputs for every entity every frame; ours is unlit
+    shaders.install()
     if getattr(window, 'fps_counter', None):
         window.fps_counter.enabled = True
     if getattr(window, 'exit_button', None):

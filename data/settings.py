@@ -23,6 +23,7 @@ class Settings:
         self.volume = T.MASTER_VOLUME   # 0-1
         self.keys = dict(DEFAULT_KEYS)  # action id -> key, see data/controls.py
         self.sensitivity = DEFAULT_SENSITIVITY
+        self.effects = True             # the full-screen effects: see fx/postfx.py
         self.load()
 
     def load(self):
@@ -52,10 +53,12 @@ class Settings:
                             self.keys[other] = DEFAULT_KEYS[other]
         if isinstance(sensitivity, (int, float)) and not isinstance(sensitivity, bool):
             self.sensitivity = min(max(sensitivity, SENSITIVITY_RANGE[0]), SENSITIVITY_RANGE[1])
+        if isinstance(saved.get('effects'), bool):
+            self.effects = saved['effects']
 
     def save(self):
         saved = {'name': self.name, 'hue': self.hue, 'volume': round(self.volume, 2),
-                 'sensitivity': self.sensitivity, 'keys': self.keys}
+                 'sensitivity': self.sensitivity, 'keys': self.keys, 'effects': self.effects}
         try:
             self.path.write_text(json.dumps(saved, indent=2), encoding='utf-8')
         except OSError:

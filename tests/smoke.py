@@ -2420,6 +2420,73 @@ check('the lettering: one pixel alphabet for everything the game prints, set in 
       and again, f'not in the alphabet: {sorted(unknown)} missed while playing: {sorted(font.MISSING)}; '
       f'(text, style, size, placed, letters, small styles, text)={built}; cached={again}')
 
+# ---------------- the visual pass ----------------
+
+from ursina import Entity, scene
+from fx import shaders, toon
+from fx.postfx import DEFAULTS as POST_DEFAULTS
+
+probe = Entity(model='cube')
+inherited = all(scene.getShaderInput(name).getValueType() != 0 for name in ('flash', 'status', 'gold', 'dull', 'fog', 'pattern'))
+outline_luma = 0.299 * toon.OUTLINE[0] + 0.587 * toon.OUTLINE[1] + 0.114 * toon.OUTLINE[2]
+own_inputs = set(shaders.toon_shader.default_input)
+probe.enabled = False
+check('one toon shader draws everything, its effects set once at the root so every limb follows',
+      probe.shader is shaders.toon_shader and inherited and outline_luma < shaders.INK
+      and not own_inputs & {'flash', 'status', 'gold', 'dull', 'fog', 'fog_range', 'pattern', 'pattern_tex'},
+      f'default={probe.shader.name} roots set={inherited} outline luma={outline_luma:.3f} < ink {shaders.INK}; '
+      f'per-entity inputs={sorted(own_inputs)}')
+
+post = s.postfx
+s.was_overdrive = p.rush.overdrive      # nothing the game does about Overdrive steps in
+post.set('saturation', 1.35)
+post.pulse('aberration', 0.006, 0.1)
+post.edge((1, 0.5, 0.2), 0.6)
+run(0.05)
+eased = post.values['saturation']
+pulsing = post.now('aberration') > 0
+run(1)
+settled = abs(post.values['saturation'] - post.targets['saturation']) < 0.02 and 'aberration' not in post.pulses
+post.set('saturation', 1.0)
+post.edge((1, 1, 1), 0)
+run(1)
+check('the full-screen effects ease and pulse, and do nothing harmful where the picture cannot be filtered',
+      1.0 < eased < 1.35 and pulsing and settled and set(POST_DEFAULTS) >= {'saturation', 'aberration', 'wipe'},
+      f'filtered={post.active} saturation after 0.05 s={eased:.2f}, settled={settled}, pulse seen={pulsing}')
+
+clear_enemies()
+place(polar(26, 200), yaw=290)
+kept_unlocked, kept_branches = dict(s.progress.unlocked), dict(s.progress.branches)
+s.progress.unlocked, s.progress.branches = {'BOOMER': ['poison', 'tiger']}, {'BOOMER': 'poison'}
+mods.rebuild()
+arsenal.equip()
+arsenal.select(2, quiet=True)
+arsenal.cooldown = 0
+arsenal.fire()
+flying = sum(r['live'] for r in arsenal.rockets)
+s.progress.branches = {'BOOMER': 'tiger'}
+mods.rebuild()
+arsenal.equip()
+crashed = None
+try:
+    run(1)
+except Exception as error:      # the rocket asked the new branch for the old one's numbers
+    crashed = repr(error)
+s.progress.unlocked, s.progress.branches = kept_unlocked, kept_branches
+mods.rebuild()
+arsenal.equip()
+arsenal.select(0, quiet=True)
+check('a rocket in the air when its branch is swapped in the shop goes quietly',
+      flying == 1 and crashed is None and not any(r['live'] for r in arsenal.rockets),
+      f'in the air before the swap={flying}, error={crashed}')
+
+effects_file = Path(scratch.name) / 'effects.json'
+saved_effects = Settings(effects_file)
+saved_effects.effects = False
+saved_effects.save()
+check('the effects can be turned off on the menu, and it is remembered', Settings(effects_file).effects is False,
+      f'after a save and load: effects={Settings(effects_file).effects}')
+
 # ---------------- performance ----------------
 
 clear_enemies()

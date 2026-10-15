@@ -643,6 +643,12 @@ class Arsenal(Entity):
                 self.weapons[i].repaint(self.paint_hue)
             changed = True
         if changed:
+            # a rocket in the air asks its weapon for numbers when it bursts, and a swapped-out
+            # branch's numbers are gone: it goes quietly
+            for rocket in self.rockets:
+                if rocket['live'] and rocket.get('weapon') not in self.weapons:
+                    rocket['live'] = rocket['stuck'] = False
+                    rocket['entity'].enabled = False
             self.weapon.view.enabled = True
             height, reach = self.weapon.muzzle
             self.muzzle_flash.position = (0, height, reach + 0.03)

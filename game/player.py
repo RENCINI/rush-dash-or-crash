@@ -505,7 +505,7 @@ class Player(Entity):
 
         self.fov_kick = damp(self.fov_kick, 0, 6, dt)
         fast = clamp((self.speed - T.RUN_SPEED) / (T.FOV_FULL_SPEED - T.RUN_SPEED), 0, 1)
-        target_fov = T.FOV_BASE + T.FOV_SPEED_BONUS * fast + self.fov_kick
+        target_fov = T.FOV_BASE + T.FOV_SPEED_BONUS * fast + self.fov_kick + T.FOV_OVERDRIVE * self.rush.overdrive
         self.base_fov = damp(self.base_fov, target_fov, 10, dt)
         zoom = self.zoom * self.zoom * (3 - 2 * self.zoom)
         camera.fov = self.base_fov + (self.zoom_fov - self.base_fov) * zoom
