@@ -7,3 +7,6 @@ progress*.json
 settings.json
 tests/shots/
 .claude/
+.vscode/
+*.pyo
+.DS_Store
