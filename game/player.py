@@ -247,8 +247,8 @@ class Player(Entity):
         self.update_slide()
         self.update_velocity(wish, dt)
         self.move_horizontal(dt)
-        self.probe_walls()
         self.move_vertical(dt)
+        self.probe_walls()      # last, so a fall into the side of a ledge is pushed back out
         self.use_jump_pad()
         if self.y < -20:
             self.respawn()
@@ -417,12 +417,20 @@ class Player(Entity):
             self.vel -= n * into
 
     def probe_walls(self):
-        """Push out of anything closer than the body radius and remember nearby walls."""
-        origin = self.position + UP * (T.PLAYER_HEIGHT / 2)
+        """Push out of anything closer than the body radius and remember nearby walls. The waist
+        looks all round; the knees and the head, where a ledge's edge or a roof's lip can be, look
+        where the body is going. (Only the waist counts as a wall to kick off.)"""
         reach = T.PLAYER_RADIUS + T.WALL_DETECT_DISTANCE
+        waist = T.PLAYER_HEIGHT / 2
+        heading = flat(self.vel)
+        rays = [(waist, d, reach) for d in PROBE_DIRECTIONS]
+        if heading.length() > 0.1:
+            heading = heading.normalized()
+            ahead = [heading]
+            rays += [(h, d, T.PLAYER_RADIUS) for h in (T.STEP_HEIGHT, T.PLAYER_HEIGHT - 0.1) for d in ahead]
         nearest = None
-        for direction in PROBE_DIRECTIONS:
-            hit = raycast(origin, direction, distance=reach)
+        for height, direction, distance in rays:
+            hit = raycast(self.position + UP * height, direction, distance=distance)
             if not hit.hit or hit.world_normal.y >= T.WALKABLE_NORMAL_Y:
                 continue
             n = flat(hit.world_normal)
@@ -432,7 +440,7 @@ class Player(Entity):
             if hit.distance < T.PLAYER_RADIUS:
                 self.position += n * (T.PLAYER_RADIUS - hit.distance) * max(-direction.dot(n), 0)
                 self.block_velocity(n)
-            if nearest is None or hit.distance < nearest[0]:
+            if height == waist and (nearest is None or hit.distance < nearest[0]):
                 nearest = (hit.distance, n)
         if nearest is not None:
             self.wall_normal = nearest[1]
@@ -447,8 +455,7 @@ class Player(Entity):
         was_grounded = self.grounded
 
         if self.vel.y > 0:
-            hit = raycast(self.position + UP * T.PLAYER_HEIGHT, UP, distance=step + 0.05)
-            if hit.hit:
+            if self.blocked_above(step + 0.05):
                 self.vel.y = 0
             else:
                 self.y += step
@@ -475,6 +482,15 @@ class Player(Entity):
             self.grounded = False
             if was_grounded:
                 self.coyote = T.COYOTE_TIME
+
+    def blocked_above(self, distance):
+        """Whether anything is within `distance` over the head: over its middle or over its rim, so
+        the edge of a ledge or a roof beside the player stops a jump the same as one overhead."""
+        rim = T.PLAYER_RADIUS * 0.9
+        for dx, dz in ((0, 0), (rim, 0), (-rim, 0), (0, rim), (0, -rim)):
+            if raycast(self.position + Vec3(dx, T.PLAYER_HEIGHT, dz), UP, distance=distance).hit:
+                return True
+        return False
 
     def land(self, impact):
         self.air_jumps = T.AIR_JUMPS

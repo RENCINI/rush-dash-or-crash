@@ -3,7 +3,7 @@ shop. Run: py tests/smoke.py"""
 import json
 import sys
 import wave
-from math import atan2, degrees
+from math import atan2, degrees, pi, sin, cos
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
@@ -2657,6 +2657,27 @@ check('the effects can be turned off on the menu, and it is remembered', Setting
       f'after a save and load: effects={Settings(effects_file).effects}')
 
 # ---------------- performance ----------------
+
+# a jump up beside the overhanging edge of a ledge (the cave's, whose underside is 2 above the floor)
+# used to push the head into the slab: only the middle of the head looked upward, and the sides did not
+s.load_map('cave')
+arena = s.map
+run(0.1)
+keys()
+place(Vec3(48.06, 0.26, 9.72))
+p.vel = Vec3(9.74, 15.48, -7.09)
+sunk = 0.0
+for _ in range(20):
+    app.step()
+    for k in range(8):
+        d = Vec3(sin(k * pi / 4), 0, cos(k * pi / 4))
+        hit = raycast(p.position + Vec3(0, T.PLAYER_HEIGHT - 0.1, 0), d, distance=T.PLAYER_RADIUS)
+        if hit.hit and abs(hit.world_normal.y) < 0.5:
+            sunk = max(sunk, T.PLAYER_RADIUS - hit.distance)
+check('a jump beside a ledge edge does not put the head into it', sunk < 0.15,
+      f'deepest head overlap with a wall={sunk:.3f}')
+s.load_map('blender')
+arena = s.map
 
 clear_enemies()
 place(polar(26, 200), yaw=290)
