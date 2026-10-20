@@ -10,3 +10,4 @@ tests/shots/
 .vscode/
 *.pyo
 .DS_Store
+gpu.txt

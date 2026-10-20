@@ -16,6 +16,8 @@ the picture can't be filtered (the tests draw offscreen) this does nothing, but 
 """
 from ursina import Entity, Shader, Vec4, camera, time
 
+from fx.shaders import compiles
+
 DEFAULTS = {'saturation': 1.0, 'aberration': 0.0, 'radial': 0.0, 'flash': 0.0, 'pause': 0.0, 'crt': 0.0,
             'wipe': 0.0, 'edge_amount': 0.0}
 RATES = {'saturation': 4.0, 'aberration': 10.0, 'radial': 6.0, 'flash': 30.0, 'pause': 8.0, 'crt': 8.0,
@@ -124,6 +126,8 @@ class PostFx(Entity):
         """Filter the picture, or stop. Returns whether it is filtered."""
         if on and not self.active:
             try:
+                if not compiles(post_shader):
+                    raise RuntimeError('the card refuses the filter')
                 camera.shader = post_shader
                 if camera.filter_quad is None:
                     raise RuntimeError('no filter')

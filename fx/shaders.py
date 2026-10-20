@@ -20,7 +20,8 @@ Ursina writes a shader's `default_input` onto every entity, so these are left ou
 once on the roots instead (`install`); an enemy or a map sets them on its own root to change them.
 """
 from panda3d.core import LVecBase4f, PTA_LVecBase4f, SamplerState, Texture as PandaTexture
-from ursina import Entity, Shader, Vec2, Vec4, camera, scene
+from ursina import Entity, Shader, Vec2, Vec4, application, camera, scene
+from ursina.shaders import unlit_shader
 
 INK = 0.1       # vertices this dark are outline, which no tint or flash touches
 LAMPS = 16      # the most pools of light one node can have
@@ -168,9 +169,35 @@ class Lamps:
         self.tints[i] = LVecBase4f(rgb[0], rgb[1], rgb[2], 1)
 
 
+def compiles(shader):
+    """Whether this graphics card accepts `shader`. Where that can't be asked (no window), yes."""
+    try:
+        gsg = base.win.getGsg()
+        shader._shader.prepare_now(gsg.getPreparedObjects(), gsg)
+        return not shader._shader.getErrorFlag()
+    except Exception:
+        return True
+
+
+def report():
+    """What the card is, written to gpu.txt beside the game, for when something draws wrong."""
+    try:
+        from fx.postfx import post_shader
+        gsg = base.win.getGsg()
+        lines = (f'renderer: {gsg.getDriverRenderer()}', f'vendor: {gsg.getDriverVendor()}',
+                 f'opengl: {gsg.getDriverVersion()}',
+                 f'glsl: {gsg.getDriverShaderVersionMajor()}.{gsg.getDriverShaderVersionMinor()}',
+                 f'toon shader ok: {compiles(toon_shader)}', f'filter shader ok: {compiles(post_shader)}')
+        (application.asset_folder / 'gpu.txt').write_text('\n'.join(lines) + '\n')
+    except Exception:
+        pass
+
+
 def install():
-    """Draw everything with the toon shader from now on."""
-    Entity.default_shader = toon_shader
+    """Draw everything with the toon shader from now on, or with Ursina's plain unlit one where the
+    card refuses it (some laptop chips): flat colours, but nothing missing."""
+    Entity.default_shader = toon_shader if compiles(toon_shader) else unlit_shader
+    report()
     neutral(scene)
     neutral(camera.ui_render)
 
